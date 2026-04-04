@@ -1,0 +1,32 @@
+InsertText (richedit control method)
+
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr>
+<td>Design<br />
+time</td>
+<td>Run<br />
+time</td>
+<td>Appears in<br />
+browser</td>
+</tr>
+</tbody>
+</table>
+
+\
+<img src="/bitmaps/browsetool22.png" data-border="0" width="16" height="15" alt="method icon" /> InsertText(string) Method
+
+**Insert text at the current cursor position**
+
+***Str***      Text string to be inserted
+
+This method is used to insert the specified text at the current cursor position. For example: .rtfControl1.InsertText(MyText\$)
+
+##### See also:
+
+Other [richedit](richedit.htm) properties, methods and events and [generic](generic.htm) properties and methods.

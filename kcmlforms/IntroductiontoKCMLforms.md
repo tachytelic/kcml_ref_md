@@ -1,0 +1,5 @@
+Introduction to KCML Forms
+
+KCML Forms provide a powerful method of writing Windows GUI applications within the KCML development environment. KCML uses the client server concept to allow the logic to execute inside a KCML server process while the forms are presented to the user by a Windows client program called **Kclient**. More specifically this is a *thin client* design as the client program does not hold any persistent information. Forms are automatically distributed from the server, though they may be cached locally by the client to maximize performance. This allows easy distribution of the client as all clients are the same whatever the application. In fact using the fact that the kclient is implemented as an ActiveX, forms can be attached to web pages and applications distributed on the Internet.
+
+The client and the server may both be on the same processor on single user setups (similar to WKCML under KCML4) or they can be on different computers linked by a TCP/IP network. The client is available for NT4 or Windows 95/98 only but the KCML server may run on various versions of Unix, NT4 or Windows 95/98.

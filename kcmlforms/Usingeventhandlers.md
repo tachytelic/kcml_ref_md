@@ -1,0 +1,9 @@
+Using event handlers
+
+Once the form is up an interactive mode is entered where the user can modify fields, push buttons and perform all the operations that any Windows dialog permits. In the process of doing this events will be triggered, such as the clicking of a button. When an event occurs control is transferred back to the KCML program to an event processing subroutine called an event handler. Essentially event handlers are normal subroutines and therefore any KCML language statements can be used when processing the event. Suppose the user clicks on a button (say *btnControl1*) and there is an event handler called *Form1.btnControl1.Click()*, then this will be called each time the user clicks on the button. The form editor knows about the available events for each control and can generate the declaration and some stub code automatically:
+
+\- DEFEVENT Form1.btnControl1.Click() END EVENT
+
+There are many more events than simply clicking on buttons. For instance an edit box can trigger events when the user moves focus to the edit box (e.g. by clicking on it), or moves focus away (e.g. by clicking on another control) or simply by modifying the contents (thus taking action as the user types). However, only those events that have event handlers in the KCML program are ever actually triggered. This is of crucial importance in the client-server environment where unnecessary traffic is undesirable.
+
+There are also enter and exit events to initialize fields before the form appears on the screen and to perform terminating functions before the form finally closes. Also useful may be the idle event which is called when not much else is going on. This is the place to perform that large database search filling up a list box while still allowing the user to fully interact with the form.

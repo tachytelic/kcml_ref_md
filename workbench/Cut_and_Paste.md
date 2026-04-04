@@ -1,0 +1,9 @@
+## Cut and Paste
+
+The editor in the KCML workbench supports a cut and paste buffer which is integrated with the Windows clipboard. The **Copy** **key** (CTRL C) copies a marked section of the program to the paste buffer without deleting it, whilst **Cut** (CTRL X) not only copies but also deletes the text from the program. **Paste** (CTRL V) is used to paste text from the paste buffer back into the program at the current cursor location. Deleting text with the Delete key does not affect this buffer.
+
+Pasting text with line numbers will renumber the lines according to the surrounding line numbers where the text is being pasted. Where space permits, multiples of ten are used for line numbers but if there are insufficient available line numbers for the paste then an error occurs and no action is taken.
+
+The current contents of the paste buffer can be displayed with the Show Paste Buffer option from within the [Edit menu](Edit_Menu.htm). Press any key to redisplay the program and resume editing. The buffer is internal to KCML and only text copied to the buffer within the editor can be displayed with this option. However the text copied in **Copy** or **Cut** is also copied to the Windows clipboard and can be pasted into another application. Similarly text from the Windows clipboard can be pasted into the workbench with the **Paste** key.
+
+Program lines are shortened using the \\ line wrap indicator to make it easier to paste into email programs which may otherwise wrap the text unpredictably. The length of the line and the continuation character to use are set in [\$OPTIONS LIST](mk:@MSITStore:kcmlrefman.chm::/$OPTIONS_LIST.htm#BYTE4). All automatic indenting for [DEFSUB](mk:@MSITStore:kcmlrefman.chm::/DEFSUB.htm), [FOR](mk:@MSITStore:kcmlrefman.chm::/FOR.htm) etc. is supressed. Blank lines are only sent to the clipboard if they are [significant](BlankLines.htm) i.e. STR(\$OPTIONS LIST,3,1) is HEX(00).

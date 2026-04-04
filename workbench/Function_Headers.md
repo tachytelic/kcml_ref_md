@@ -1,0 +1,3 @@
+## Display Function Headers only
+
+The Display Function Headers menu option toggles the display removing all statements from the display except for [DEFFN'](mk:@MSITStore:relnotes.chm::/DEFFN.htm) and [DEFSUB'](mk:@MSITStore:relnotes.chm::/defsub.htm) function definition statements. This allows the outline structure of a program to be seen more clearly. Once in this mode selecting a function header with the RETURN key returns back to normal mode with the display starting from the selected function header. Any attempt to modify or execute the program in the mode will revert back to the normal display.

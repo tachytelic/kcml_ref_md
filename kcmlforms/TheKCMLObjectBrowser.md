@@ -1,0 +1,5 @@
+The KCML Object Browser
+
+**Note:** For KCML 5.03 and later the functionality of this object browser has been absorbed into the [Workbench](mk:@MSITStore:workbench.chm::/wbbrowser.htm). The information in this section only applies to the 5.02 editor environment
+
+The developer is provided with an integrated development environment based on the KCML workbench. New and existing forms and database tables are selected and maintained using the KCML Object Browser. The KCML Object Browser tool, invoked from the editor menu or with CTRL-F, can be used to manage all the database tables and forms in a particular module. For database tables the object browser displays a list of the columns within the table along with details of the tables indices, properties, methods etc. For form objects the browser shows the properties, methods and select event handlers for the control on the selected form. Using the Object browser the programmer does not need to be familiar with the structure of the program but can be guided by the browser and positioned right at the event he needs. The browser can also be used to insert form event handlers into the program.

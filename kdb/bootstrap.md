@@ -1,0 +1,17 @@
+Bootstrapping a database
+
+A newly installed KCML system is supplied with a default schema (kconf.xml) which contains sufficient information to bootstrap new databases. To create a database on such a system the following steps should be followed:
+
+Ensure that the 'system' tablespace in the default kconf.xml points to a valid directory, and that directory is writeable.
+
+Connect to the 'system' database using [KI_CONNECT](../../../../tmp/KI_CONNECT.htm). This is a virtual database, defined by default in kconf.xml for the express purpose of bootstrapping other databases.
+
+Create a global tablespace, with [CREATE TABLESPACE](CREATE_TABLESPACE.htm), to be used as the default tablespace for the new database. It is recomended that this is a **FLAT** tablespace.
+
+Now use [CREATE DATABASE](CREATE_DB.htm) to create the new database, using the default tablespace created above. The catalog for the new database will be created in the 'system' tablespace, which is why the KCML process must have write permission on the directory it points to.
+
+There will now be an entry in kconf.xml for the new database.
+
+The 'system' database can now be disconnected, a connection made to the newly created database, further tablespaces added and [tables](CREATE_TABLE.htm) and [indices](CREATE_INDEX.htm) created. The following code fragment gives an outline of the whole procedure.
+
+: CALL KI_ALLOC_CONNECT 0 TO connection,status : REM Connect to the 'system' database. : CALL KI_CONNECT "KDB", connection, "system", " ", " " TO status : CALL KI_ALLOC_HANDLE -1, connection TO handle, status : REM Create the default tablespace. : sql\$ = "CREATE TABLESPACE kcc_data '/user3/data/kcc' TYPE FLAT" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status : REM Create the 'kcc' database. : sql\$ = "CREATE DATABASE kcc TYPE KDB DEFAULT TABLESPACE kcc_data" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status : REM Finished with the 'system' database, so disconnect. : CALL KI_DISCONNECT connection TO status : CALL KI_FREE_CONNECT connection TO status : CALL KI_ALLOC_CONNECT 0 TO connection, status : REM Connect to the database we just created. : CALL KI_CONNECT "KDB", connection, "kcc", " ", " " TO status : CALL KI_ALLOC_HANDLE -1, connection TO handle, status : REM Create a local tablespace for the new database. : sql\$ = "CREATE LOCAL TABLESPACE kcc_tree_data '/user3/data/kcc/tree' TYPE TREE" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status : REM Create a table in the new database. No tablespace defined so it goes in the database default tablespace. : sql\$ = "CREATE TABLE kcc_test (pid INTEGER(4), sname VARCHAR(20)) TYPE 7" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status : REM Create another table, this time in a named tablespace. : sql\$ = "CREATE TABLE gb_00_accnt (pid INTEGER(4) NAME 'Identifier', sname VARCHAR(20) NAME 'Surname') TYPE 7, TABLESPACE kcc_tree_data" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status : REM Put an index on the table. : sql\$ = "CREATE UNIQUE INDEX gb_00_accnt_A01 on gb_00_accnt (pid)" : CALL KI_PREPARE handle, sql\$ TO status : CALL KI_EXECUTE handle TO status : CALL KI_CLOSE handle TO status
