@@ -105,12 +105,69 @@ IF ..CursorRow > 1 THEN .btnView.Enabled = 1
 
 ---
 
+## Clipboard Copy from a Form
+
+Use `'KCMLWriteClipboard` to copy text to the Windows clipboard. Requires a
+`$DECLARE` at script level (outside any DEFFORM/DEFEVENT):
+
+```kcml
+$DECLARE 'KCMLWriteClipboard(STR())
+```
+
+Then call it from a button event:
+
+```kcml
+DEFEVENT MyForm.btnCopy.Click()
+  LOCAL DIM clip_result
+  clip_result = 'KCMLWriteClipboard(text_to_copy$)
+END EVENT
+```
+
+Notes:
+- The leading apostrophe is required - it denotes a KClient-side function
+- Returns TRUE on success, FALSE on failure
+- String limit is 65535 bytes (KCML string constraint, not a clipboard limit)
+- Available since KCML 5.00
+
+---
+
+## Listbox - Adding Items and Reading File Line by Line
+
+`READ #fh, var$` reads a **fixed number of bytes** equal to `var$`'s declared size,
+NOT a line. To read a text file line by line into a listbox, read one byte at a time
+and split on LF (`HEX(0A)`):
+
+```kcml
+REM At top level - declare 1-byte read buffer and line accumulator
+LOCAL DIM ch$1, line_acc$300, la_pos, bytes
+la_pos = 1
+REPEAT
+  bytes = READ #6, ch$
+  IF ch$ == HEX(0A) THEN DO
+    IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$, 1, la_pos - 1))
+    IF la_pos == 1 THEN .lstContent.Add(" ")
+    la_pos = 1
+  END DO
+  IF ch$ <> HEX(0A) AND ch$ <> HEX(0D) THEN DO
+    STR(line_acc$, la_pos, 1) = ch$
+    la_pos = la_pos + 1
+  END DO
+UNTIL END
+IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$, 1, la_pos - 1))
+CLOSE #6
+```
+
+Use `listbox$` with `Style=0x50310000` for both vertical and horizontal scrollbars.
+Listbox items never wrap - each item is one line regardless of length.
+
+---
+
 ## Complete Working Example
 
 See `kcml_executor/spool_view.kcml` - a two-form application:
 1. `SpoolView` - grid listing all SPOOLMAST entries with clickable rows
-2. `SpoolFileView` - listbox showing contents of the selected spool file
+2. `SpoolFileView` - listbox showing contents of the selected spool file with Copy button
 
 Demonstrates: DATA LOAD BU file reading, grid fill, hidden column, LeftClick event,
 button enable on selection, passing data between forms via shared DIM variables,
-OPEN # text file reading into a listbox.
+OPEN # text file reading into a listbox, KCMLWriteClipboard clipboard copy.
