@@ -1,0 +1,24 @@
+REM Test two KI_OPEN approaches
+: DIM ki_status, conn, h1, h2
+
+: PRINT "=== KI_OPEN Approaches ==="
+
+REM Approach 1 - schema-less conn 0, allocate handle, full path
+: PRINT "--- Approach 1: ALLOC_HANDLE on conn=0, full path ---"
+: CALL KI_ALLOC_HANDLE 1, 0 TO h1, ki_status
+: PRINT "ALLOC h1="; h1; " s="; ki_status
+: CALL KI_OPEN h1, h1, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+: PRINT "KI_OPEN (conn0/fullpath): "; ki_status
+
+REM Approach 2 - LIVE db connection, table name only
+: PRINT "--- Approach 2: LIVE conn, name only ---"
+: CALL KI_ALLOC_CONNECT 0 TO conn, ki_status
+: CALL KI_CONNECT "KDB", conn, "LIVE", "", "" TO ki_status
+: PRINT "KI_CONNECT LIVE: "; ki_status
+: CALL KI_ALLOC_HANDLE 2, conn TO h2, ki_status
+: PRINT "ALLOC h2="; h2; " s="; ki_status
+: CALL KI_OPEN h2, h2, "OEHDR01", "R" TO ki_status
+: PRINT "KI_OPEN (LIVE/OEHDR01): "; ki_status
+
+: PRINT "=== Done ==="
+: $END

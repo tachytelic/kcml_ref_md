@@ -1,0 +1,50 @@
+: REM KCML CGI - Order Header Lookup
+: REM Returns order details as JSON
+: REM Usage - http [colon] //10.1.1.213/order_lookup_json.kcml?order=016519
+: REM
+: REM q$ holds HEX(22) = double-quote char, avoids repeating HEX(22) throughout PRINT statements
+: DIM ki_status, handle, ki_sym, ki_dataptr$6, ki_key$64, rec$2048
+: DIM qs$256, ord$20, eq_pos, amp_pos, hex$12, read_ok, date$10, q$1
+: q$ = HEX(22)
+: PRINT "Content-type: application/json"
+: PRINT
+: qs$ = ENV("QUERY_STRING")
+: eq_pos = POS(qs$ = "=")
+: IF eq_pos == 0 THEN PRINT "{"; q$; "error"; q$; ": "; q$; "Missing order parameter"; q$; "}"
+: IF eq_pos == 0 THEN $END
+: ord$ = STR(qs$, eq_pos + 1, 20)
+: amp_pos = POS(ord$ = "&")
+: IF amp_pos > 0 THEN STR(ord$, amp_pos, 21 - amp_pos) = " "
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: IF ki_status <> 0 THEN PRINT "{"; q$; "error"; q$; ": "; q$; "KI_ALLOC_HANDLE failed"; q$; "}"
+: IF ki_status <> 0 THEN $END
+: CALL KI_OPEN handle, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+: IF ki_status <> 0 THEN PRINT "{"; q$; "error"; q$; ": "; q$; "KI_OPEN failed"; q$; "}"
+: IF ki_status <> 0 THEN $END
+: CALL KI_START handle, ord$, 1 TO ki_status
+: ki_sym = SYM(rec$)
+: CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+: IF ki_status == 0 THEN read_ok = 1
+: IF read_ok == 0 THEN PRINT "{"; q$; "error"; q$; ": "; q$; "Order not found"; q$; "}"
+: IF read_ok == 0 THEN CALL KI_CLOSE handle TO ki_status
+: IF read_ok == 0 THEN $END
+: IF STR(ki_key$, 1, 20) <> ord$ THEN read_ok = 0
+: IF read_ok == 0 THEN PRINT "{"; q$; "error"; q$; ": "; q$; "Order not found"; q$; "}"
+: IF read_ok == 0 THEN CALL KI_CLOSE handle TO ki_status
+: IF read_ok == 0 THEN $END
+: CALL KI_CLOSE handle TO ki_status
+: HEXUNPACK STR(rec$, 82, 4) TO hex$
+: date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+: PRINT "{"
+: PRINT "  "; q$; "order_number"; q$; ": "; q$; RTRIM(STR(rec$, 18, 6)); q$; ","
+: PRINT "  "; q$; "created_by"; q$; ": "; q$; RTRIM(STR(rec$, 2, 4)); q$; ","
+: PRINT "  "; q$; "changed_by"; q$; ": "; q$; RTRIM(STR(rec$, 6, 4)); q$; ","
+: PRINT "  "; q$; "delivery_account"; q$; ": "; q$; RTRIM(STR(rec$, 28, 7)); q$; ","
+: PRINT "  "; q$; "sa_account"; q$; ": "; q$; RTRIM(STR(rec$, 48, 7)); q$; ","
+: PRINT "  "; q$; "customer_reference"; q$; ": "; q$; RTRIM(STR(rec$, 58, 24)); q$; ","
+: PRINT "  "; q$; "order_date"; q$; ": "; q$; date$; q$; ","
+: PRINT "  "; q$; "order_type"; q$; ": "; q$; RTRIM(STR(rec$, 434, 1)); q$; ","
+: PRINT "  "; q$; "currency_code"; q$; ": "; q$; RTRIM(STR(rec$, 555, 1)); q$; ","
+: PRINT "  "; q$; "sales_rep"; q$; ": "; q$; RTRIM(STR(rec$, 557, 4)); q$
+: PRINT "}"
+: $END

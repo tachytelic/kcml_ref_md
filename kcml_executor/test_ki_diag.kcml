@@ -1,0 +1,62 @@
+REM KI open parameter variants - diagnostic
+: DIM ki_status, ki_h, ki_sym, rec$512, ki_dataptr$6, ki_key$64, ki_opened
+
+: PRINT "=== KI_ Diagnostic ==="
+: PRINT
+
+REM Variant A - 4 params stream=1, literal handle 1 (legacy style)
+: PRINT "--- Variant A: KI_OPEN(1, 1, file, mode) legacy ---"
+: CALL KI_OPEN 1, 1, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+: ERROR DO
+:   PRINT "  KI_OPEN threw error"
+:   ki_status = -1
+: END DO
+: PRINT "  result: "; ki_status
+: IF ki_status == 0 THEN ki_opened = 1 : ki_h = 1
+
+REM Variant B - 3 params no stream, literal handle 1
+: IF ki_opened == 0 THEN DO
+:   PRINT "--- Variant B: KI_OPEN(1, file, mode) 3 params ---"
+:   CALL KI_OPEN 1, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+:   ERROR DO
+:     PRINT "  KI_OPEN threw error"
+:     ki_status = -1
+:   END DO
+:   PRINT "  result: "; ki_status
+:   IF ki_status == 0 THEN ki_opened = 1 : ki_h = 1
+: END DO
+
+: PRINT
+: IF ki_opened == 0 THEN PRINT "All KI_OPEN variants failed" : $END
+
+: PRINT "File opened OK"
+: PRINT
+
+REM Test KI_START_BEG
+: PRINT "--- KI_START_BEG ---"
+: CALL KI_START_BEG ki_h, 1 TO ki_status
+: ERROR DO
+:   PRINT "KI_START_BEG threw error"
+:   ki_status = -1
+: END DO
+: PRINT "KI_START_BEG: "; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot position" : CALL KI_CLOSE ki_h TO ki_status : $END
+
+REM Test KI_READ_NEXT
+: PRINT "--- KI_READ_NEXT ---"
+: ki_sym = SYM(rec$)
+: CALL KI_READ_NEXT ki_h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+: ERROR DO
+:   PRINT "KI_READ_NEXT threw error"
+:   ki_status = -1
+: END DO
+: PRINT "KI_READ_NEXT: "; ki_status
+: IF ki_status == 0 THEN DO
+:   PRINT "Key: ["; STR(ki_key$, 1, 20); "]"
+:   PRINT "Rec: ["; STR(rec$, 1, 60); "]"
+: END DO
+
+: CALL KI_CLOSE ki_h TO ki_status
+: PRINT "KI_CLOSE: "; ki_status
+: PRINT "=== Done ==="
+: $END

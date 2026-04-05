@@ -1,0 +1,38 @@
+DIM status, h, conn, rowbuf$500, sql$200, colcount, n
+: CALL KI_ALLOC_CONNECT 0 TO conn, status
+: CALL KI_CONNECT "KDB", conn, "LIVE", "", "" TO status
+: CALL KI_ALLOC_HANDLE -1, conn TO h, status
+: sql$ = "SELECT * FROM " & HEX(22) & "Country Code Co 01" & HEX(22)
+: CALL KI_PREPARE h, sql$ TO status, colcount
+: PRINT "Prepare: "; status; " Cols: "; colcount
+: IF status = 0 THEN
+:   CALL KI_EXECUTE h TO status
+:   PRINT "Execute: "; status
+:   IF status = 0 THEN
+:     n = 0
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 1
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 2
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 3
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 4
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 5
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 6
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 7
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 8
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 9
+:     CALL KI_FETCH h, SYM(rowbuf$) TO status
+:     IF status = 0 THEN n = 10
+:     PRINT "Fetched "; n; " rows, last status: "; status
+:   ENDIF
+: ENDIF
+: CALL KI_CLOSE h TO status
+: CALL KI_DISCONNECT conn TO status
+: $END

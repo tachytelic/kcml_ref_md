@@ -61,6 +61,15 @@ KCML is used by 80,000+ end users worldwide for:
 - Travel booking and reservations
 - And many other commercial applications
 
+## KCML Code Execution Server
+
+The `kcml_executor/` folder contains a Python-based execution server that allows Claude to write and test KCML code:
+
+- **server.py** - HTTP server for remote KCML execution
+- **mcp_server.py** - MCP protocol server for direct Claude integration
+
+See [kcml_executor/README.md](kcml_executor/README.md) for deployment instructions.
+
 ## Origin
 
 This documentation was converted from the original KCML HTML help files to Markdown format for improved accessibility and version control.

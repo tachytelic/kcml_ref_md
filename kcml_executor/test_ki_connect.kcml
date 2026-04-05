@@ -1,0 +1,65 @@
+REM KDB connection diagnostic for KOPEN3 LIVE database
+: DIM ki_status, conn, handle, rec$512, ki_dataptr$6, ki_key$64, ki_sym
+
+: PRINT "=== KDB Connection Test ==="
+: PRINT
+
+REM Step 1 - allocate a connection handle
+: PRINT "Step 1: KI_ALLOC_CONNECT 0"
+: CALL KI_ALLOC_CONNECT 0 TO conn, ki_status
+: PRINT "  conn="; conn; " status="; ki_status
+
+REM Step 2 - connect to the LIVE database
+: PRINT "Step 2: KI_CONNECT to LIVE"
+: IF ki_status == 0 THEN DO
+:   CALL KI_CONNECT "KDB", conn, "LIVE", "", "" TO ki_status
+:   PRINT "  KI_CONNECT (KDB/LIVE): "; ki_status
+:   IF ki_status <> 0 THEN DO
+:     CALL KI_CONNECT "R8", conn, "LIVE", "", "" TO ki_status
+:     PRINT "  KI_CONNECT (R8/LIVE): "; ki_status
+:   END DO
+: END DO
+: IF ki_status <> 0 THEN PRINT "Cannot connect to LIVE database" : $END
+: PRINT "  Connected OK"
+: PRINT
+
+REM Step 3 - allocate a rowset handle on this connection
+: PRINT "Step 3: KI_ALLOC_HANDLE"
+: CALL KI_ALLOC_HANDLE 0, conn TO handle, ki_status
+: PRINT "  handle="; handle; " status="; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot allocate handle" : $END
+: PRINT
+
+REM Step 4 - open the file
+: PRINT "Step 4: KI_OPEN OEHDR01"
+: CALL KI_OPEN handle, handle, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+: PRINT "  KI_OPEN (full path): "; ki_status
+: IF ki_status <> 0 THEN DO
+:   CALL KI_OPEN handle, handle, "OEHDR01", "R" TO ki_status
+:   PRINT "  KI_OPEN (name only): "; ki_status
+: END DO
+: IF ki_status <> 0 THEN PRINT "Cannot open OEHDR01" : $END
+: PRINT "  File open OK"
+: PRINT
+
+REM Step 5 - position to start
+: PRINT "Step 5: KI_START_BEG"
+: CALL KI_START_BEG handle, 1 TO ki_status
+: PRINT "  KI_START_BEG: "; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot position" : CALL KI_CLOSE handle TO ki_status : $END
+: PRINT
+
+REM Step 6 - read a record
+: PRINT "Step 6: KI_READ_NEXT"
+: ki_sym = SYM(rec$)
+: CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+: PRINT "  KI_READ_NEXT: "; ki_status
+: IF ki_status == 0 THEN DO
+:   PRINT "  Key: ["; STR(ki_key$, 1, 20); "]"
+:   PRINT "  Rec: ["; STR(rec$, 1, 60); "]"
+: END DO
+
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "KI_CLOSE: "; ki_status
+: PRINT "=== Done ==="
+: $END

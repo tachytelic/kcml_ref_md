@@ -1,0 +1,389 @@
+01000 REM Data Dictionary Maintenance
+    : DIM DD_FILE$16,DD_NAME$96,RUN_PERC(3),U7$2,OLD_RWC_KEY$35
+01010 GOSUB 'GB_SCREEN_HEADER("DATA DICTIONARY MAINTENANCE")
+    : PRINT AT(3,9);"Table Name ";BOX(1,36);
+    : PRINT AT(6,8);"Column Name ";BOX(1,21);
+    : PRINT AT(8,9);"Field Type ";BOX(1,2);AT(8,24);"""C""haracter, ""D""ate, ""B""inary or ""I""BM Packed";
+    : PRINT AT(10,5);"Start of Field ";BOX(1,5);
+    : PRINT AT(12,4);"Length of Field ";BOX(1,5);
+    : PRINT AT(14,1);"Number of Decimals ";BOX(1,2);
+    : PRINT AT(16,12);"Signed? ";BOX(1,2);
+    : PRINT AT(18,2);"Update from ODBC? ";BOX(1,2);
+01020 REPEAT
+    : GOSUB 'KEYSTR(DD_NAME$,3,21,35)
+    : ON Q8-125 GOTO 1020,1900
+    : IF Q6$==" " THEN 1020
+    : IF STR(Q6$,,1)=="?" THEN DO
+    : GOSUB 'HELP_RW_CAT(1,5,10)
+    : IF Q6$==" " THEN 1020
+    : PRINT AT(3,21,35);Q6$;
+    : END DO
+    : DD_NAME$ = Q6$
+    : Q9 = 'VERIFY_DATA_DICTIONARY(Q6$)
+    : SELECT CASE Q9
+    : CASE 1
+    : PRINT AT(4,21,40);HEX(070E);"Catalogue Record Not Found";HEX(0F);
+    : CASE 2
+    : PRINT AT(4,21,40);"Data Dictionary Not Found";
+    : END SELECT
+    : IF Q9<>0 AND U6$(1)=="9" THEN DO
+    : GOSUB 'LINPUT_LINE("Edit Details?","Yes No",1,0,0,1,FALSE," ")
+    : IF LINPUT_OPTION==1 THEN GOSUB 'CHECK_CATALOGUE(Q6$)
+    : Q9 = 1
+    : END DO
+    : UNTIL Q9==0
+    : DD_NAME$ = STR(RWC_REC$,RW_C1(11),RW_C2(11))
+    : PRINT AT(3,21,35);DD_NAME$;
+    : PRINT AT(4,21,40);
+01050 NEW_DDFLD = FALSE
+    : PRINT AT(6,44);"Press FN1 to print data dictionary";
+    : IF U6$(1)=="9" THEN PRINT AT(7,44);"Press FN2 to edit catalogue";
+    : REPEAT
+    : ALLOWFNS,DD_PRINT = TRUE
+    : GOSUB 'KEYSTR(RWD_KEY$,6,21,20)
+    : ALLOWFNS,DD_PRINT = FALSE
+    : IF Q8==2 THEN DO
+    : CAT_DELETED = FALSE
+    : GOSUB 'CHECK_CATALOGUE(DD_NAME$)
+    : Q8 = 2
+    : IF BOOL(CAT_DELETED) THEN 1020
+    : END DO
+    : UNTIL Q8<>1 AND Q8<>2
+    : PRINT AT(6,44,35);
+    : PRINT AT(7,44,35);
+    : ON Q8-125 GOTO 1200,1200
+    : IF Q6$==" " THEN 1050
+    : IF STR(Q6$,,1)=="?" THEN DO
+    : GOSUB 'HELP_RW_DD(1,5,10)
+    : IF Q6$==" " THEN 1050
+    : END DO
+    : RWD_KEY$ = Q6$
+    : GOSUB 'READ_RW_DD(RWD_KEY$,TRUE)
+    : IF KI_STATUS==1 THEN DO
+    : NEW_DDFLD = TRUE
+    : RWD_NUM() = ZER
+    : RWD_REC$ = " "
+    : STR(RWD_REC$,RW_D1(1),RW_D2(1)) = RWD_KEY$
+    : STR(RWD_REC$,RW_D1(7),RW_D2(7)) = "N"
+    : END DO
+    : ELSE IF KI_STATUS==12 THEN DO
+    : CONVERT KI_LOCKBY TO Q7$,(###)
+    : Q6$ = "Data Dictionary field being edited by partition " & Q7$
+    : GOSUB 'MESSBOX_RETURN(Q6$,0)
+    : GOTO 1050
+    : END DO
+    : ELSE IF KI_STATUS<>0 THEN DO
+    : GOSUB 'KI_FATAL_ERROR("Unable to access DD Field")
+    : END DO
+    : GOSUB 'DISPLAY_DD_FIELDS()
+01060 GOSUB 'KEYSTR(STR(RWD_REC$,RW_D1(2),RW_D2(2)),8,21,1)
+    : ON Q8-125 GOTO 1050,1050
+    : GOSUB 'LOWTOUP(SYM(Q6$))
+    : IF Q6$==" " THEN DO
+    : IF BOOL(NEW_DDFLD) THEN 1050
+    : GOSUB 'LINPUT_LINE("Delete Field?","Yes No",1,7,20,2,TRUE," ")
+    : IF LINPUT_OPTION<>1 THEN 1060
+    : GOSUB 'KI_DELETE(GB_H(221),RWD_DATAPTR$)
+    : GOTO 1050
+    : END DO
+    : IF POS("CDBI" = Q6$)==0 THEN DO
+    : PRINT HEX(07);
+    : GOTO 1060
+    : END DO
+    : PRINT AT(8,21);Q6$;
+    : STR(RWD_REC$,RW_D1(2),RW_D2(2)) = Q6$
+    : IF Q6$=="D" THEN DO
+    : RWD_NUM(2) = 4
+    : PRINT AT(12,21);
+    : PRINTUSING "####",4;
+    : END DO
+01070 GOSUB 'KEYNUM(RWD_NUM(1),10,21,"####")
+    : ON Q8-125 GOTO 1060,1050
+    : RWD_NUM(1) = Q9
+    : IF STR(RWD_REC$,RW_D1(2),RW_D2(2))=="D" THEN 1110
+01080 GOSUB 'KEYNUM(RWD_NUM(2),12,21,"####")
+    : ON Q8-125 GOTO 1070,1050
+    : RWD_NUM(2) = Q9
+    : ON POS("CDB" = STR(RWD_REC$,RW_D1(2),RW_D2(2))) GOTO 1110,1110,1100
+01090 GOSUB 'KEYNUM(RWD_NUM(3),14,21,"#")
+    : ON Q8-125 GOTO 1080,1050
+    : RWD_NUM(3) = Q9
+01100 GOSUB 'KEYSTR((RWD_NUM(4)==0 ? "N" : "Y"),16,21,1)
+    : IF Q8==127 THEN 1050
+    : IF Q8==126 AND STR(RWD_REC$,RW_D1(2),RW_D2(2))=="B" THEN 1080
+    : IF Q8==126 THEN 1090
+    : GOSUB 'LOWTOUP(SYM(Q6$))
+    : IF POS("YN" = Q6$)==0 THEN DO
+    : PRINT HEX(07);
+    : GOTO 1100
+    : END DO
+    : RWD_NUM(4) = (Q6$=="N" ? 0 : 1)
+01110 IF STR(RWC_REC$,RW_C1(4),RW_C2(4))=="Y" THEN DO
+    : GOSUB 'KEYSTR(STR(RWD_REC$,RW_D1(7),RW_D2(7)),18,21,1)
+    : IF Q8==127 THEN 1050
+    : IF Q8==126 AND STR(RWD_REC$,RW_D1(2),RW_D2(2))=="D" THEN 1070
+    : IF Q8==126 AND POS("IB" = STR(RWD_REC$,RW_D1(2),RW_D2(2)))<>0 THEN 1100
+    : IF Q8==126 THEN 1080
+    : GOSUB 'LOWTOUP(SYM(Q6$))
+    : IF POS("YN" = Q6$)==0 THEN DO
+    : PRINT HEX(07);
+    : GOTO 1110
+    : END DO
+    : PRINT AT(18,21,1);Q6$;
+    : STR(RWD_REC$,RW_D1(7),RW_D2(7)) = Q6$
+    : END DO
+01120 GOSUB 'WRITE_RW_DD(NEW_DDFLD)
+    : IF KI_STATUS==5 OR KI_STATUS==6 THEN DO
+    : Q6$ = "Data Dictionary " & (KI_STATUS==5 ? "Index" : "Data") & " area full"
+    : GOSUB 'MESS_BOX(Q6$,1)
+    : GOSUB 'KEY_RETURN()
+    : WINDOW CLOSE #0
+    : END DO
+    : ELSE IF KI_STATUS<>0 THEN DO
+    : GOSUB 'KI_FATAL_ERROR("ERROR Writing to Data Dictionary")
+    : END DO
+    : GOTO 1050
+01200 GOSUB 'KI_CLOSE(GB_H(221))
+    : GOTO 1020
+01900 REM % End of Program
+    : GOSUB 'MESS_BOX("Returning to menu",0)
+    : LOAD "RW/MENU"
+02100 DEFFN 'NEW_DICTIONARY()
+    : GOSUB 'LINPUT_LINE("Data Dictionary not found - Create?","Yes No",1,8,5,1,FALSE," ")
+    : IF LINPUT_OPTION==1 THEN DO
+    : Q6$ = "N" & BIN(2,2) & BIN(20) & ALL(HEX(00))
+    : GOSUB 'KI_CREATE(GB_H(221),GB_H(221),DD_FILE$,250,64,SYM(Q6$))
+    : IF KI_STATUS<>0 THEN GOSUB 'KI_FATAL_ERROR("ERROR Creating DD")
+    : GOSUB 'KI_INITIALISE(GB_H(221))
+    : GOSUB 'KI_UNLOCK_FILE(GB_H(221),0)
+    : RW_CREATE = TRUE
+    : END DO
+    : ELSE DO
+    : RW_CREATE = FALSE
+    : END DO
+    : RETURN
+02200 DEFFN 'CHECK_CATALOGUE(DD_NAME$)
+    : Q6$ = DD_NAME$
+    : CHARS = 0
+    : RWC_KEY$ = Q6$
+    : GOSUB 'GET_RW_CAT_KEY(SYM(RWC_KEY$))
+    : NEW_CAT_ENTRY,ABORT = FALSE
+02210 GOSUB 'READ_RW_CATALOGUE(RWC_KEY$,TRUE)
+    : IF KI_STATUS==1 THEN DO
+    : GOSUB 'NEW_CATALOGUE_ENTRY(RWC_KEY$)
+    : NEW_CAT_ENTRY = TRUE
+    : KI_STATUS = 0
+    : END DO
+    : ELSE IF KI_STATUS==12 THEN DO
+    : CONVERT KI_LOCKBY TO Q6$,(###)
+    : Q7$ = "Dictionary being edited on partition " & Q6$ & " - Retry?"
+    : GOSUB 'LINPUT_LINE(Q7$,"Yes No",1,10,5,1,TRUE," ")
+    : IF LINPUT_OPTION==1 THEN 2210
+    : END DO
+    : IF KI_STATUS==0 THEN GOSUB 'EDIT_CATALOGUE()
+    : ELSE ABORT = TRUE
+    : RETURN
+02300 DEFFN 'NEW_CATALOGUE_ENTRY(RWC_KEY$)
+    : RWC_REC$ = " "
+    : STR(RWC_REC$,RW_C1(1),RW_C2(1)) = RWC_KEY$
+    : STR(RWC_REC$,RW_C1(2),RW_C2(2)) = " "
+    : STR(RWC_REC$,RW_C1(3),RW_C2(3)) = " "
+    : STR(RWC_REC$,RW_C1(4),RW_C2(4)) = "N"
+    : STR(RWC_REC$,RW_C1(11),RW_C2(11)) = DD_NAME$
+    : STR(RWC_REC$,RW_C1(12),RW_C2(12)) = "N"
+    : STR(RWC_REC$,RW_C1(13),RW_C2(13)) = HEX(00)
+    : RETURN
+02500 DEFFN 'EDIT_CATALOGUE()
+    : PRINT HEX(0200 0600 0F);
+    : GOSUB 'GB_SCREEN_HEADER("Catalogue Entry")
+    : PRINT AT(2,1);"Table Name ";BOX(1,36);" ";STR(RWC_REC$,RW_C1(11),RW_C2(11))
+    : PRINT AT(4,1);"Data Filename : ";
+    : PRINT AT(5,0);BOX(1,79);" ";STR(RWC_REC$,RW_C1(2),78);
+    : PRINT AT(6,1);"Data Dictionary Filename :";
+    : PRINT AT(7,0);BOX(1,79);" ";STR(RWC_REC$,RW_C1(3),78);
+    : PRINT AT(9,8);"Code Table ";BOX(1,2);" ";STR(RWC_REC$,RW_C1(12),RW_C2(12));
+    : PRINT AT(11,1);"Length of Code ID ";BOX(1,3);
+    : CODE_BIT = VAL(STR(RWC_REC$,RW_C1(14),RW_C2(14)))
+    : IF CODE_BIT==32 THEN CODE_BIT = (STR(RWC_REC$,RW_C1(12),RW_C2(12))=="Y" ? 1 : 0)
+    : PRINTUSING " ##",CODE_BIT;
+    : PRINT AT(11,26);"ID in Hex ";BOX(1,(CODE_BIT*2)+1);" ";
+    : IF CODE_BIT>0 THEN PRINT HEXOF(STR(RWC_REC$,RW_C1(13),CODE_BIT));
+    : OLD_RWC_KEY$ = STR(RWC_REC$,RW_C1(1),RW_C2(1))
+    : CAT_DELETED = FALSE
+02510 GOSUB 'KEYSTR(STR(RWC_REC$,RW_C1(11),RW_C2(11)),2,13,RW_C2(11))
+    : ON Q8-125 GOTO 2590,2590
+    : IF Q6$==" " THEN DO
+    : CAT_DELETED = 'DELETE_CATALOGUE_ENTRY()
+    : IF NOT BOOL(CAT_DELETED) THEN 2510
+    : Q8 = 127
+    : GOTO 2590
+    : END DO
+    : RWC_KEY$ = Q6$
+    : GOSUB 'GET_RW_CAT_KEY(SYM(RWC_KEY$))
+    : IF Q6$<>STR(RWC_REC$,RW_C1(1),RW_C2(1)) THEN DO
+    : GOSUB 'KI_READ(GB_H(220),Q6$,1,SYM(Q6$))
+    : IF KI_STATUS==0 THEN DO
+    : PRINT HEX(07);
+    : GOTO 2510
+    : END DO
+    : END DO
+    : STR(RWC_REC$,RW_C1(11),RW_C2(11)) = Q6$
+    : STR(RWC_REC$,RW_C1(1),RW_C2(1)) = RWC_KEY$
+02520 GOSUB 'KEYSTR(STR(RWC_REC$,RW_C1(2),78),5,1,78)
+    : ON Q8-125 GOTO 2510,2590
+    : STR(RWC_REC$,RW_C1(2),RW_C2(2)) = Q6$
+    : LIMITS T Q6$,Q8,Q8,Q8,Q9
+    : IF Q9<>2 THEN DO
+    : PRINT HEX(07);
+    : GOTO 2520
+    : END DO
+02530 GOSUB 'KEYSTR(STR(RWC_REC$,RW_C1(3),78),7,1,78)
+    : ON Q8-125 GOTO 2520,2590
+    : STR(RWC_REC$,RW_C1(3),RW_C2(3)) = Q6$
+    : LIMITS T Q6$,Q8,Q8,Q8,Q9
+    : IF Q9<>2 THEN DO
+    : PRINT HEX(07);
+    : GOTO 2530
+    : END DO
+02540 GOSUB 'KEYSTR(STR(RWC_REC$,RW_C1(12),RW_C2(12)),9,20,1)
+    : ON Q8-125 GOTO 2530,2590
+    : GOSUB 'LOWTOUP(SYM(Q6$))
+    : IF POS("YN" = Q6$)==0 THEN DO
+    : PRINT HEX(07);
+    : GOTO 2540
+    : END DO
+    : STR(RWC_REC$,RW_C1(12),RW_C2(12)) = Q6$
+    : IF Q6$=="N" THEN 2590
+02550 GOSUB 'KEYNUM(CODE_BIT,11,20,"##")
+    : ON Q8-125 GOTO 2540,2590
+    : IF Q9<=0 OR Q9>10 THEN DO
+    : PRINT HEX(07);
+    : GOTO 2550
+    : END DO
+    : PRINT AT(11,36);BOX(-1,-((CODE_BIT*2)+1));
+    : CODE_BIT = Q9
+    : STR(RWC_REC$,RW_C1(14),RW_C2(14)) = BIN(CODE_BIT)
+    : PRINT AT(11,36);BOX(1,CODE_BIT*2+1);
+    : HEXUNPACK STR(RWC_REC$,RW_C1(13),CODE_BIT) TO Q6$
+02560 GOSUB 'KEYSTR(Q6$,11,37,CODE_BIT*2)
+    : ON Q8-125 GOTO 2550,2590
+    : HEXPACK Q7$ FROM STR(Q6$,,CODE_BIT*2)
+    : ERROR DO
+    : PRINT HEX(07);
+    : GOTO 2560
+    : END DO
+    : STR(RWC_REC$,RW_C1(13),RW_C2(13)) = Q7$
+02590 IF Q8==0 THEN DO
+    : GOSUB 'WRITE_RW_CATALOGUE(NEW_CAT_ENTRY)
+    : IF KI_STATUS==5 OR KI_STATUS==6 THEN DO
+    : Q6$ = "RW Catalogue " & (KI_STATUS==5 ? "Index" : "Data") & " area full"
+    : GOSUB 'MESS_BOX(Q6$,1)
+    : GOSUB 'KEY_RETURN()
+    : WINDOW CLOSE #0
+    : END DO
+    : ELSE IF KI_STATUS<>0 THEN DO
+    : GOSUB 'KI_FATAL_ERROR("Unable to write RW Catalogue")
+    : END DO
+    : END DO
+    : ELSE IF NOT BOOL(CAT_DELETED) AND (Q8==126 OR Q8==127) THEN DO
+    : GOSUB 'KI_UNLOCK(GB_H(220),RWC_DATAPTR$)
+    : END DO
+    : PRINT HEX(0302 0006 000E);
+    : RETURN
+02600 DEFFN 'DELETE_CATALOGUE_ENTRY()
+    : GOSUB 'LINPUT_LINE("Delete Catalogue Entry?","No Yes",1,0,0,1,FALSE," ")
+    : IF LINPUT_OPTION==2 THEN GOSUB 'KI_DELETE(GB_H(220),RWC_DATAPTR$)
+    : RETURN (LINPUT_OPTION==2 ? TRUE : FALSE)
+02700 DEFFN 'DISPLAY_DD_FIELDS()
+    : PRINT AT(6,21);STR(RWD_REC$,RW_D1(1),RW_D2(1));
+    : PRINT AT(8,21);STR(RWD_REC$,RW_D1(2),RW_D2(2));
+    : PRINT AT(10,21);
+    : PRINTUSING "####",RWD_NUM(1);
+    : PRINT AT(12,21);
+    : PRINTUSING "####",RWD_NUM(2);
+    : PRINT AT(14,21);
+    : PRINTUSING "#",RWD_NUM(3);
+    : PRINT AT(16,21);(RWD_NUM(4)==0 ? "N" : "Y");
+    : PRINT AT(18,21);STR(RWD_REC$,RW_D1(7),RW_D2(7));
+    : RETURN
+03000 DEFFN '1
+    : REM Print Data Dictionary
+    : IF BOOL(DD_PRINT) THEN DO
+    : GOSUB 'KI_INFO2(GB_H(221))
+    : RUN_PERC() = ZER
+    : RUN_PERC(2) = KI_VAL(4)
+    : GB_COMPTITLE$ = "Printing Data Dictionary"
+    : GOSUB 'COMPLETED_WINDOW()
+    : GOSUB 'KI_START_BEG(GB_H(221),1)
+    : IF SP_ON$=="Y" THEN GOSUB 'SET_SPOOLFILE()
+    : PAGE = 0
+    : LN = 99
+    : REPEAT
+    : GOSUB 'KI_READ_NEXT(GB_H(221),1,SYM(RWD_REC$))
+    : IF KI_STATUS==0 THEN DO
+    : GOSUB 'SELSCREEN()
+    : GOSUB 'UPDATE_COMPLETED()
+    : GOSUB 'SELPRINT()
+    : GOSUB 'UNPACK_RW_DD()
+    : IF ++LN>60 THEN DO
+    : Q6$ = DD_NAME$ & " Fields"
+    : Q7$ = TIME
+    : IF STR(Q7$,,2)=="99" THEN Q8$ = " "
+    : ELSE Q8$ = STR(Q7$,,2) & ":" & STR(Q7$,3,2) & ":" & STR(Q7$,5,2)
+    : PRINT HEX(0C);"Report Writer";TAB(99);STR(Q8$,,8);"  ";TODAY$;"  Page"; ++PAGE
+    : PRINT HEX(0E);TAB(27-LEN(Q6$)/2);"****  ";Q6$;"  ****"
+    : PRINT 
+    : PRINT "Column Name          Type Start Length Decimals Signed? Update?"
+    : PRINT "---------------------------------------------------------------"
+    : LN = 1
+    : END DO
+    : PRINTUSING "####################   #   ####   ####     #       #       # ",STR(RWD_REC$,RW_D1(1),RW_D2(1)),STR(RWD_REC$,RW_D1(2),RW_D2(2)),RWD_NUM(1),RWD_NUM(2),RWD_NUM(3),(RWD_NUM(4)==0 ? "N" : "Y"),STR(RWD_REC$,RW_D1(7),RW_D2(7))
+    : END DO
+    : UNTIL KI_STATUS<>0
+    : GOSUB 'SELSCREEN()
+03010 IF SP_ON$=="Y" THEN DO
+    : IF PAGE==0 THEN DO
+    : GOSUB 'DELETE_SPOOLFILE()
+    : END DO
+    : ELSE DO
+    : SP_DESC$ = DD_NAME$
+    : GOSUB 'SAVE_SPOOLFILE()
+    : END DO
+    : END DO
+    : WINDOW CLOSE #1
+    : END DO
+    : ELSE DO
+    : PRINT HEX(07)
+    : END DO
+    : Q8 = 1
+    : RETURN
+04000 DEFFN '2
+    : IF BOOL(DD_PRINT) AND U6$(1)=="9" THEN Q8 = 2
+    : RETURN
+08050 DEFSUB 'VERIFY_DATA_DICTIONARY(DD_DESC$)
+    : NOT_OK = 0
+    : GOSUB 'GET_RW_CAT_KEY(SYM(DD_DESC$))
+    : GOSUB 'READ_RW_CATALOGUE(DD_DESC$,FALSE)
+    : IF KI_STATUS<>0 THEN DO
+    : NOT_OK = 1
+    : END DO
+    : ELSE DO
+    : IF LAST_DICT$<>STR(RWC_REC$,RW_C1(3),RW_C2(3)) THEN LAST_DICT$ = 'OPEN_DATA_DICTIONARY$(STR(RWC_REC$,RW_C1(3),RW_C2(3)))
+    : IF KI_STATUS<>0 THEN NOT_OK = 2
+    : END DO
+    : RETURN NOT_OK
+08100 DEFSUB 'OPEN_DATA_DICTIONARY$(DATADICT$)
+    : GOSUB 'KI_CLOSE(GB_H(221))
+    : Q9 = POS(-DATADICT$ = "/")
+    : IF Q9<=1 THEN DO
+    : KI_STATUS = 1
+    : END DO
+    : ELSE DO
+    : SELECT #GB_H(221) <STR(DATADICT$,,Q9-1)>
+    : GOSUB 'KI_OPEN(GB_H(221),GB_H(221),STR(DATADICT$,Q9+1),"W")
+    : LAST_DICT$ = DATADICT$
+    : END DO
+    : RETURN LAST_DICT$
+09993 REM SCCS Version (247.1)
+09997 DEFFN '26"RESAVE";HEX(22);"RW/DDMNT";HEX(22);"1000"
+09999 DEFFN '0"PRINTHEX(03):LISTSD1000,";HEX(0D)

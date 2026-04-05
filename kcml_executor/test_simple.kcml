@@ -1,0 +1,15 @@
+DIM status, h, conn, rowbuf$500, sql$200, cc
+DIM colname$40, sqltype$10, packfmt$10, offset
+: rowbuf$ = ""
+: CALL KI_ALLOC_CONNECT 0 TO conn, status
+: CALL KI_CONNECT "KDB", conn, "LIVE", "", "" TO status
+: CALL KI_ALLOC_HANDLE -1, conn TO h, status
+: sql$ = "SELECT * FROM " & HEX(22) & "Country Code Co 01" & HEX(22)
+: CALL KI_PREPARE h, sql$ TO status, cc
+: PRINT "Prep: "; status
+: CALL KI_DESCRIBE_COL h, 1 TO colname$, sqltype$, packfmt$, offset, status
+: PRINT "Describe st: "; status
+: PRINT "Col1: "; colname$
+: CALL KI_CLOSE h TO status
+: CALL KI_DISCONNECT conn TO status
+: $END

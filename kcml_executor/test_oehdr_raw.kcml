@@ -1,0 +1,48 @@
+: REM Test KISAM read - /user1/kopen3/sop/OEHDR01 (order header file)
+: REM Verified working pattern for KCML 06.00.88
+: REM Connection 1 is auto-created as KISAM on script start
+: DIM ki_status, handle, ki_sym, ki_dataptr$6, ki_key$64, rec$512, hex$400, i, count
+: PRINT "=== OEHDR01 KISAM Read Test ==="
+: REM Step 1 - allocate handle on KISAM connection 1
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: PRINT "ALLOC_HANDLE: handle="; handle; " status="; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot allocate handle" : $END
+: REM Step 2 - open the file (3-param form for KCML 6.x)
+: CALL KI_OPEN handle, "/user1/kopen3/sop/OEHDR01", "R" TO ki_status
+: PRINT "KI_OPEN: "; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot open file" : $END
+: PRINT "File open OK"
+: REM Step 3 - position to start of index path 1
+: CALL KI_START_BEG handle, 1 TO ki_status
+: PRINT "KI_START_BEG: "; ki_status
+: IF ki_status <> 0 THEN PRINT "Cannot position" : CALL KI_CLOSE handle TO ki_status : $END
+: REM Step 4 - pre-assign SYM before use in CALL
+: ki_sym = SYM(rec$)
+: PRINT "SYM(rec$) = "; ki_sym
+: REM Step 5 - read up to 5 records
+: count = 0
+: REPEAT
+:   CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+:   IF ki_status == 0 THEN DO
+:     count++
+:     PRINT "--- Record "; count; " ---"
+:     HEXUNPACK ki_dataptr$ TO hex$
+:     PRINT "ROWID (hex): "; STR(hex$, 1, 12)
+:     HEXUNPACK STR(ki_key$, 1, 20) TO hex$
+:     PRINT "Key  (hex):  "; STR(hex$, 1, 40)
+:     PRINT "Key  (text): ["; STR(ki_key$, 1, 20); "]"
+:     PRINT "Rec  (text): ["; STR(rec$, 1, 60); "]"
+:     PRINT "Rec  (hex):"
+:     FOR i = 1 TO 48 STEP 16
+:       HEXUNPACK STR(rec$, i, 16) TO hex$
+:       PRINT "  "; STR(hex$, 1, 32)
+:     NEXT i
+:     PRINT "---"
+:   END DO
+: UNTIL ki_status <> 0 OR count >= 5
+: PRINT "Records read: "; count
+: PRINT "Final status: "; ki_status; " (2=EOF, 0=more data)"
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "KI_CLOSE: "; ki_status
+: PRINT "=== Done ==="
+: $END
