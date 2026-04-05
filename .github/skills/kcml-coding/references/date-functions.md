@@ -126,6 +126,27 @@ DIM julian, ms_date
 : $END
 ```
 
+## Getting the Current Time
+
+Use `#TIME` (integer) and `CONVERT TIME` — do NOT use `$TIME` for display.
+
+```kcml
+: DIM t, t$10
+: t = #TIME
+: CONVERT TIME t TO t$
+: PRINT "Time: "; t$
+: $END
+```
+Output: `Time: 09:41:47`
+
+- `#TIME` returns seconds since midnight as an integer
+- `CONVERT TIME integer TO string$` formats as `HH:MM:SS`
+- `$TIME` returns a 4-byte packed binary value — looks like garbage when printed, do not use for display
+
+This mirrors `#DATE` / `CONVERT DATE` exactly.
+
+---
+
 ## Century Handling (R7_DATE2J)
 
 For legacy R7_DATE2J with 2-digit years, byte 48 of `$OPTIONS RUN` controls the century cutoff:

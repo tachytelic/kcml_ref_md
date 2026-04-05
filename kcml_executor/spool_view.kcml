@@ -1,0 +1,84 @@
+: REM Spool Queue Viewer - Forms Based
+: REM Read-only display of SPOOLMAST
+: REM SPOOLMAST is a flat binary file, 128 bytes per record, record 0 is header
+: REM Access via DATA LOAD DC OPEN / DATA LOAD BU (not KISAM)
+: DIM fh, sp_rec$128, sp_next, i, row, result
+: DIM sp_entry, sp_stat$1, sp_userreq$4, sp_dtreq$10, hex$12, status$10
+: DIM disp
+: REM
+: DEFFORM SpoolView()={.form,.form$,.Style=0x50C000C4,.Width=660,.Height=454,.Text$="Spool Queue Viewer",.Id=1024},\
+{.ok,.button$,.Style=0x50010001,.Left=604,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1},\
+{.lblCount,.static$,.Style=0x50000000,.Left=604,.Top=25,.Width=50,.Height=13,.Id=1001},\
+{.grid,.kcmlgrid$,.Style=0x50010030,.Left=5,.Top=5,.Width=592,.Height=435,.Id=1000,.Rows=1,.Cols=6,.FixedRows=1,.FixedCols=0,.ServerText=1}
+: REM
+: DEFEVENT SpoolView.Enter()
+:   DIM open_ok
+:   fh = 5
+:   open_ok = 1
+:   SELECT #fh "/user1/kopen3/spool"
+:   ERROR DO
+:     open_ok = 0
+:   END DO
+:   DATA LOAD DC OPEN T#fh, "SPOOLMAST"
+:   IF open_ok == 0 THEN DO
+:     .lblCount.Text$ = "Cannot open SPOOLMAST"
+:   END DO
+:   IF open_ok == 1 THEN DO
+:     REM Read header record - first 4 bytes = next entry number to allocate
+:     DATA LOAD BU T#fh, (0)sp_rec$
+:     sp_next = VAL(STR(sp_rec$,,4),4)
+:     REM Count valid entries to size the grid
+:     disp = 0
+:     FOR i = 1 TO sp_next - 1
+:       DATA LOAD BU T#fh, (i*128)sp_rec$
+:       IF STR(sp_rec$,57,1) <> "6" THEN disp++
+:     NEXT i
+:     REM Size grid and set column headings
+:     .grid.Rows = disp + 1
+:     .grid.Cell(0,1).ColWidth = 40
+:     .grid.Cell(0,1).Heading$ = "Entry"
+:     .grid.Cell(0,2).ColWidth = 160
+:     .grid.Cell(0,2).Heading$ = "Description"
+:     .grid.Cell(0,3).ColWidth = 70
+:     .grid.Cell(0,3).Heading$ = "Stationery"
+:     .grid.Cell(0,4).ColWidth = 60
+:     .grid.Cell(0,4).Heading$ = "Status"
+:     .grid.Cell(0,5).ColWidth = 35
+:     .grid.Cell(0,5).Heading$ = "User"
+:     .grid.Cell(0,6).ColWidth = 65
+:     .grid.Cell(0,6).Heading$ = "Date Req"
+:     REM Fill the grid
+:     row = 1
+:     FOR i = 1 TO sp_next - 1
+:       DATA LOAD BU T#fh, (i*128)sp_rec$
+:       sp_stat$ = STR(sp_rec$,57,1)
+:       IF sp_stat$ <> "6" THEN DO
+:         row++
+:         sp_entry = VAL(STR(sp_rec$,,4),4)
+:         .grid.Cell(row,1).Text$ = sp_entry
+:         .grid.Cell(row,2).Text$ = RTRIM(STR(sp_rec$,17,30))
+:         .grid.Cell(row,3).Text$ = RTRIM(STR(sp_rec$,47,10))
+:         IF sp_stat$ == "1" THEN status$ = "ON QUEUE"
+:         ELSE IF sp_stat$ == "2" THEN status$ = "PRINTING"
+:         ELSE IF sp_stat$ == "3" THEN status$ = "PRINTED"
+:         ELSE IF sp_stat$ == "4" THEN status$ = "ABORTED"
+:         ELSE IF sp_stat$ == "5" THEN status$ = "KEEP"
+:         ELSE status$ = "UNKNOWN"
+:         .grid.Cell(row,4).Text$ = status$
+:         .grid.Cell(row,5).Text$ = RTRIM(STR(sp_rec$,73,4))
+:         HEXUNPACK STR(sp_rec$,59,4) TO hex$
+:         IF STR(hex$,,8) <> "00000000" THEN DO
+:           sp_dtreq$ = STR(hex$,7,2) & "/" & STR(hex$,5,2) & "/" & STR(hex$,1,4)
+:         END DO
+:         ELSE sp_dtreq$ = ""
+:         .grid.Cell(row,6).Text$ = sp_dtreq$
+:       END DO
+:     NEXT i
+:     $CLOSE #5
+:     .lblCount.Text$ = disp & " items"
+:   END DO
+: END EVENT
+: REM
+: FORM END SpoolView
+: result = SpoolView.Open()
+: $END

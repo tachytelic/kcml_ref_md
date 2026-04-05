@@ -1,0 +1,91 @@
+: REM Tree Demo - KCML Forms Example
+: REM Requires KCML telnet client to display (not runnable via kcml -p)
+: REM Form definition is as produced by the GUI editor
+: DIM root, node1, node2, result
+: REM
+: DEFFORM Form1()={.form,.form$,.Style=0x50C000C4,.Width=678,.Height=454,.Text$="Tree demo",.Id=1024},\
+{.ok,.button$,.Style=0x50010001,.Left=623,.Top=5,.Width=50,.Height=14,.Text$="OK",.__Anchor=5,.Id=1},\
+{.cancel,.button$,.Style=0x50010000,.Left=623,.Top=22,.Width=50,.Height=14,.Text$="Cancel",.__Anchor=5,.Id=2},\
+{.help,.button$,.Style=0x50010000,.Left=622,.Top=42,.Width=50,.Height=14,.Text$="&Collapse",.__Anchor=5,.Id=9},\
+{.treeControl1,.tree$,.Style=0x50A10027,.Left=18,.Top=14,.Width=188,.Height=177,.Id=1000,.HasPictures=1,.Sorted=0},\
+{.menu1,.menu$,.Style=0x1,.Id=1001,\
+	.option1={.Text$="Option1"},\
+	.separator={.Flag=2048},\
+	.option2={.Flag=128,.Text$="Option2"}},\
+{.txtControl1,.static$,.Style=0x50000000,.Left=211,.Top=68,.Width=95,.Height=13,.Id=1002},\
+{.txtControl2,.static$,.Style=0x50000000,.Left=211,.Top=88,.Width=96,.Height=13,.Id=1003},\
+{.txtControl3,.static$,.Style=0x50000000,.Left=211,.Top=108,.Width=99,.Height=12,.Id=1004},\
+{.cmdButton1,.button$,.Left=19,.Top=417,.Width=101,.Height=23,.Style=0x50010000,.Text$="Pauls Test Button",.Id=1025}
+: REM
+: REM --- Form Enter - populate tree before display ---
+: DEFEVENT Form1.form.Enter()
+:   REM Build tree structure - Sorted=0 so order is preserved
+:   root = .treeControl1.Add("Root", 3)
+:   node1 = .treeControl1.Item(root).Add("Node1", 3)
+:   .treeControl1.Item(node1).Add("Leaf", 0)
+:   .treeControl1.Item(node1).Add("Leaf", 0)
+:   node2 = .treeControl1.Item(root).Add("Node2", 3)
+:   .treeControl1.Item(node2).Add("Leaf", 0)
+:   .treeControl1.Item(node2).Add("Leaf", 0)
+:   .treeControl1.Item(root).Add("Leaf", 0)
+:   REM Expand root and Node1 to match screenshot
+:   .treeControl1.Item(root).Expand()
+:   .treeControl1.Item(node1).Expand()
+:   REM Set label hints in static controls
+:   .txtControl1.Text$ = "Selected:"
+:   .txtControl2.Text$ = "Item ID:"
+:   .txtControl3.Text$ = "Click a node"
+: END EVENT
+: REM
+: REM --- Tree click - show selected item details in static controls ---
+: DEFEVENT Form1.treeControl1.Click()
+:   LOCAL DIM sel_id, sel_text$80
+:   sel_id = ..Index
+:   sel_text$ = ..Item(sel_id).Text$
+:   .txtControl1.Text$ = "Selected: " & RTRIM(sel_text$)
+:   .txtControl2.Text$ = "Item ID: " & sel_id
+:   .txtControl3.Text$ = ""
+: END EVENT
+: REM
+: REM --- Right click - show popup menu ---
+: DEFEVENT Form1.treeControl1.RightClick()
+:   .menu1.TrackPopup(..MouseX + ..Left, ..MouseY + ..Top)
+: END EVENT
+: REM
+: REM --- Menu option 1 ---
+: DEFEVENT Form1.menu1.option1.Select()
+:   LOCAL DIM sel_id, sel_text$80
+:   sel_id = .treeControl1.Index
+:   sel_text$ = .treeControl1.Item(sel_id).Text$
+:   .txtControl3.Text$ = "Option1: " & RTRIM(sel_text$)
+: END EVENT
+: REM
+: REM --- Menu option 2 ---
+: DEFEVENT Form1.menu1.option2.Select()
+:   .txtControl3.Text$ = "Option2 selected"
+: END EVENT
+: REM
+: REM --- Collapse button (help button Id=9) - collapse all tree nodes ---
+: DEFEVENT Form1.help.Click()
+:   .treeControl1.Item(root).Collapse()
+:   .txtControl1.Text$ = "Selected:"
+:   .txtControl2.Text$ = "Item ID:"
+:   .txtControl3.Text$ = "Tree collapsed"
+: END EVENT
+: REM
+: REM --- Pauls Test Button - expand full tree and select Node2 ---
+: DEFEVENT Form1.cmdButton1.Click()
+:   .treeControl1.Item(root).Expand()
+:   .treeControl1.Item(node1).Expand()
+:   .treeControl1.Item(node2).Expand()
+:   .treeControl1.Item(node2).Select()
+:   .txtControl1.Text$ = "Selected: Node2"
+:   .txtControl2.Text$ = "Item ID: " & node2
+:   .txtControl3.Text$ = "Expanded by button"
+: END EVENT
+: REM
+: FORM END Form1
+: result = Form1.Open()
+: IF result == 1 THEN PRINT "User clicked OK"
+: IF result == 0 THEN PRINT "User clicked Cancel"
+: $END

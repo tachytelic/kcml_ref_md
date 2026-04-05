@@ -1,0 +1,11 @@
+: DIM cur_time, cur_time$10
+: PRINT "Content-type: text/html"
+: PRINT
+: PRINT "<html><body>"
+: PRINT "<h1>KCML CGI Works!</h1>"
+: PRINT "<p>Query string: "; ENV("QUERY_STRING"); "</p>"
+: cur_time = #TIME
+: CONVERT TIME cur_time TO cur_time$
+: PRINT "<p>Time: "; cur_time$; "</p>"
+: PRINT "</body></html>"
+: $END

@@ -156,6 +156,12 @@ Use `application/json` content type. Store `HEX(22)` in a variable to avoid repe
 ```
 
 Note: the last field has no trailing `,`. Error objects follow the same pattern:
+
+Alternatively, use doubled double quotes instead of `q$` — both are valid:
+```kcml
+: PRINT "  ""order_number"": """; RTRIM(STR(rec$, 18, 6)); ""","
+```
+The `q$` approach is easier to read when quotes are dense; `""` is fine for occasional use.
 ```kcml
 : PRINT "{"; q$; "error"; q$; ": "; q$; "Order not found"; q$; "}"
 ```

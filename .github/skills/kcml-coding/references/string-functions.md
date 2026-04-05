@@ -1,5 +1,43 @@
 # KCML String Functions
 
+## Embedding Double Quotes in Strings
+
+Two consecutive double quotes inside a string literal produce a single literal `"` character:
+
+```kcml
+: PRINT "The double quote "" character!"
+```
+Output: `The double quote " character!`
+
+This works in any string context — assignment, PRINT, IF comparisons:
+
+```kcml
+: IF abc$ == """" THEN ...       : REM tests if abc$ equals one double-quote
+: STR(zyx$, 99, 2) = """"""     : REM assigns two double-quotes at position 99
+```
+
+### Embedding quotes in JSON or XML output
+
+Two approaches — pick based on readability:
+
+**Option 1: doubled quotes** (good for short/occasional quotes)
+```kcml
+: PRINT "  ""order_number"": """; RTRIM(STR(rec$, 18, 6)); ""","
+```
+
+**Option 2: `q$` variable holding `HEX(22)`** (better when quotes are dense)
+```kcml
+: DIM q$1
+: q$ = HEX(22)
+: PRINT "  "; q$; "order_number"; q$; ": "; q$; RTRIM(STR(rec$, 18, 6)); q$; ","
+```
+
+Both produce: `  "order_number": "016519",`
+
+`HEX(22)` is the historic workaround predating the `""` documentation — both are valid KCML.
+
+---
+
 ## Substring: STR()
 
 Extract or modify part of a string. **This is the primary substring function in KCML.**
