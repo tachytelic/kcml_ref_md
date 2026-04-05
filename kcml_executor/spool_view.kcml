@@ -1,18 +1,20 @@
 : REM Spool Queue Viewer - Forms Based
-: REM Read-only display of SPOOLMAST
+: REM Read-only display of SPOOLMAST with file viewer
 : REM SPOOLMAST is a flat binary file, 128 bytes per record, record 0 is header
 : REM Access via DATA LOAD DC OPEN / DATA LOAD BU (not KISAM)
 : DIM fh, sp_rec$128, sp_next, i, row, result
 : DIM sp_entry, sp_stat$1, sp_userreq$4, sp_dtreq$10, hex$12, status$10
-: DIM disp
+: DIM disp, sel_file$12, sel_desc$30
 : REM
 : DEFFORM SpoolView()={.form,.form$,.Style=0x50C000C4,.Width=660,.Height=454,.Text$="Spool Queue Viewer",.Id=1024},\
 {.ok,.button$,.Style=0x50010001,.Left=604,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1},\
-{.lblCount,.static$,.Style=0x50000000,.Left=604,.Top=25,.Width=50,.Height=13,.Id=1001},\
-{.grid,.kcmlgrid$,.Style=0x50010030,.Left=5,.Top=5,.Width=592,.Height=435,.Id=1000,.Rows=1,.Cols=6,.FixedRows=1,.FixedCols=0,.ServerText=1}
+{.btnView,.button$,.Style=0x50010000,.Left=604,.Top=22,.Width=50,.Height=14,.Text$="View",.Enabled=0,.__Anchor=5,.Id=1025},\
+{.lblSel,.static$,.Style=0x50000000,.Left=604,.Top=40,.Width=50,.Height=40,.Id=1001},\
+{.lblCount,.static$,.Style=0x50000000,.Left=604,.Top=85,.Width=50,.Height=13,.Id=1002},\
+{.grid,.kcmlgrid$,.Style=0x50010030,.Left=5,.Top=5,.Width=592,.Height=435,.Id=1000,.Rows=1,.Cols=7,.FixedRows=1,.FixedCols=0,.ServerText=1}
 : REM
 : DEFEVENT SpoolView.Enter()
-:   DIM open_ok
+:   LOCAL DIM open_ok
 :   fh = 5
 :   open_ok = 1
 :   SELECT #fh "/user1/kopen3/spool"
@@ -47,6 +49,11 @@
 :     .grid.Cell(0,5).Heading$ = "User"
 :     .grid.Cell(0,6).ColWidth = 65
 :     .grid.Cell(0,6).Heading$ = "Date Req"
+:     REM Column 7 holds filename - narrow, used as hidden store
+:     .grid.Cell(0,7).ColWidth = 1
+:     .grid.Cell(0,7).Heading$ = ""
+:     REM Left click selects whole row
+:     .grid.LeftSelect = &.Row
 :     REM Fill the grid
 :     row = 1
 :     FOR i = 1 TO sp_next - 1
@@ -72,6 +79,15 @@
 :         END DO
 :         ELSE sp_dtreq$ = ""
 :         .grid.Cell(row,6).Text$ = sp_dtreq$
+:         REM Store filename in hidden column 7
+:         .grid.Cell(row,7).Text$ = RTRIM(STR(sp_rec$,5,12))
+:         REM Make cells clickable
+:         .grid.Cell(row,1).LeftAction = &.Click
+:         .grid.Cell(row,2).LeftAction = &.Click
+:         .grid.Cell(row,3).LeftAction = &.Click
+:         .grid.Cell(row,4).LeftAction = &.Click
+:         .grid.Cell(row,5).LeftAction = &.Click
+:         .grid.Cell(row,6).LeftAction = &.Click
 :       END DO
 :     NEXT i
 :     $CLOSE #5
@@ -79,6 +95,68 @@
 :   END DO
 : END EVENT
 : REM
+: REM --- Grid left click - capture selected row filename and enable View button ---
+: DEFEVENT SpoolView.grid.LeftClick()
+:   LOCAL DIM sel_row
+:   sel_row = ..CursorRow
+:   IF sel_row > 1 THEN DO
+:     sel_file$ = ..Cell(sel_row,7).Text$
+:     sel_desc$ = ..Cell(sel_row,2).Text$
+:     .lblSel.Text$ = RTRIM(sel_desc$)
+:     .btnView.Enabled = 1
+:   END DO
+: END EVENT
+: REM
+: REM --- View button - open spool file viewer form ---
+: DEFEVENT SpoolView.btnView.Click()
+:   SpoolFileView.Open()
+: END EVENT
+: REM
 : FORM END SpoolView
+: REM
+: REM --- Spool file viewer form ---
+: DEFFORM SpoolFileView()={.form,.form$,.Style=0x50C000C4,.Width=700,.Height=500,.Text$="Spool File Viewer",.Id=1024},\
+{.ok,.button$,.Style=0x50010001,.Left=644,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1},\
+{.lblTitle,.static$,.Style=0x50000000,.Left=5,.Top=5,.Width=689,.Height=13,.Id=1001},\
+{.lstContent,.listbox$,.Style=0x50310000,.Left=5,.Top=22,.Width=689,.Height=465,.Id=1000,.Font=.Courier},\
+{.Courier,.dlgfont$,.Name$="Courier",.Size=10}
+: REM
+: DEFEVENT SpoolFileView.Enter()
+:   LOCAL DIM ch$1, line_acc$300, la_pos, bytes, filepath$80
+:   LOCAL DIM open_ok2
+:   .lblTitle.Text$ = RTRIM(sel_desc$) & " [" & RTRIM(sel_file$) & "]"
+:   filepath$ = "/user1/kopen3/spool/" & RTRIM(sel_file$)
+:   open_ok2 = 1
+:   .lstContent.Delete()
+:   ERROR DO
+:     open_ok2 = 0
+:   END DO
+:   OPEN #6, filepath$, "r"
+:   IF open_ok2 == 0 THEN DO
+:     LOCAL DIM errmsg$100
+:     errmsg$ = "Cannot open: " & RTRIM(filepath$)
+:     .lstContent.Add(errmsg$)
+:   END DO
+:   IF open_ok2 == 1 THEN DO
+:     la_pos = 1
+:     REPEAT
+:       bytes = READ #6, ch$
+:       IF ch$ == HEX(0A) THEN DO
+:         IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$, 1, la_pos - 1))
+:         IF la_pos == 1 THEN .lstContent.Add(" ")
+:         la_pos = 1
+:       END DO
+:       IF ch$ <> HEX(0A) AND ch$ <> HEX(0D) THEN DO
+:         STR(line_acc$, la_pos, 1) = ch$
+:         la_pos = la_pos + 1
+:       END DO
+:     UNTIL END
+:     IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$, 1, la_pos - 1))
+:     CLOSE #6
+:   END DO
+: END EVENT
+: REM
+: FORM END SpoolFileView
+: REM
 : result = SpoolView.Open()
 : $END
