@@ -4,7 +4,8 @@
 : REM Access via DATA LOAD DC OPEN / DATA LOAD BU (not KISAM)
 : DIM fh, sp_rec$128, sp_next, i, row, result
 : DIM sp_entry, sp_stat$1, sp_userreq$4, sp_dtreq$10, hex$12, status$10
-: DIM disp, sel_file$12, sel_desc$30
+: DIM disp, sel_file$12, sel_desc$30, buf$65000
+: $DECLARE 'KCMLWriteClipboard(STR())
 : REM
 : DEFFORM SpoolView()={.form,.form$,.Style=0x50C000C4,.Width=660,.Height=454,.Text$="Spool Queue Viewer",.Id=1024},\
 {.ok,.button$,.Style=0x50010001,.Left=604,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1},\
@@ -117,6 +118,7 @@
 : REM --- Spool file viewer form ---
 : DEFFORM SpoolFileView()={.form,.form$,.Style=0x50C000C4,.Width=700,.Height=500,.Text$="Spool File Viewer",.Id=1024},\
 {.ok,.button$,.Style=0x50010001,.Left=644,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1},\
+{.btnCopy,.button$,.Style=0x50010000,.Left=644,.Top=22,.Width=50,.Height=14,.Text$="Copy",.__Anchor=5,.Id=1026},\
 {.lblTitle,.static$,.Style=0x50000000,.Left=5,.Top=5,.Width=689,.Height=13,.Id=1001},\
 {.lstContent,.listbox$,.Style=0x50310000,.Left=5,.Top=22,.Width=689,.Height=465,.Id=1000,.Font=.Courier},\
 {.Courier,.dlgfont$,.Name$="Courier",.Size=10}
@@ -153,6 +155,38 @@
 :     UNTIL END
 :     IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$, 1, la_pos - 1))
 :     CLOSE #6
+:   END DO
+: END EVENT
+: REM
+: REM --- Copy button - read file into buf$ and write to clipboard ---
+: DEFEVENT SpoolFileView.btnCopy.Click()
+:   LOCAL DIM ch$1, buf_pos, bytes, filepath$80, clip_ok
+:   filepath$ = "/user1/kopen3/spool/" & RTRIM(sel_file$)
+:   buf$ = ALL(HEX(00))
+:   buf_pos = 1
+:   clip_ok = 1
+:   ERROR DO
+:     clip_ok = 0
+:   END DO
+:   OPEN #7, filepath$, "r"
+:   IF clip_ok == 1 THEN DO
+:     REPEAT
+:       bytes = READ #7, ch$
+:       IF ch$ == HEX(0A) THEN DO
+:         IF buf_pos < 64998 THEN DO
+:           STR(buf$, buf_pos, 2) = HEX(0D0A)
+:           buf_pos = buf_pos + 2
+:         END DO
+:       END DO
+:       IF ch$ <> HEX(0A) AND ch$ <> HEX(0D) THEN DO
+:         IF buf_pos < 64999 THEN DO
+:           STR(buf$, buf_pos, 1) = ch$
+:           buf_pos = buf_pos + 1
+:         END DO
+:       END DO
+:     UNTIL END
+:     CLOSE #7
+:     'KCMLWriteClipboard(STR(buf$, 1, buf_pos - 1))
 :   END DO
 : END EVENT
 : REM
