@@ -93,6 +93,25 @@ $DECLARE 'sv_shell(INT(),STR(),STR(),STR(),STR(),INT())=".ShellExecute"
 : REM hwnd=0, verb="open", file=path, params=null, dir=null, show=SW_SHOWNORMAL(1)
 ```
 
+```kcml
+REM Open a PDF with the system viewer
+$DECLARE 'sv_shell(INT(),STR(),STR(),STR(),STR(),INT())=".ShellExecute"
+LOCAL DIM sv_path$260
+sv_path$ = "C:\Reports\invoice.pdf"
+'sv_shell(0,"open",sv_path$,HEX(00),HEX(00),1)
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Print a file silently using ShellExecute verb "print"
+$DECLARE 'sv_shell(INT(),STR(),STR(),STR(),STR(),INT())=".ShellExecute"
+LOCAL DIM sv_f$260
+sv_f$ = "C:\Temp\report.txt"
+'sv_shell(0,"print",sv_f$,HEX(00),HEX(00),0)
+: REM show=0 (SW_HIDE) — no window for print operation
+```
+<!-- UNTESTED -->
+
 ### GetEnvironmentVariableA — get user's temp folder
 
 ```kcml
@@ -103,6 +122,16 @@ IF sv_tmpdir$ == " " THEN sv_tmpdir$ = "C:\Windows\Temp"
 ```
 
 Always fall back to a default — the call fails silently if the variable is not set.
+
+```kcml
+REM Read the USERNAME environment variable
+$DECLARE 'sv_getenv(STR(),RETURN STR(),INT())=".GetEnvironmentVariableA"
+LOCAL DIM sv_user$260
+'sv_getenv("USERNAME",sv_user$,260)
+sv_user$ = RTRIM(sv_user$)
+PRINT "Running as: "; sv_user$
+```
+<!-- UNTESTED -->
 
 ### Win16 File I/O — write a temp file
 
@@ -121,6 +150,22 @@ IF sv_file == -1 THEN sv_tmp_path$ = " "   : REM signal failure
 
 Note `_lcreat` uses `._lcreat` (dot prefix for client-side) but `_lwrite` and `_lclose` do not.
 
+```kcml
+REM Write a plain text temp file using Win16 API
+$DECLARE 'sv_creat(STR(),INT())="._lcreat"
+$DECLARE 'sv_write(INT(),DIM(),INT())="_lwrite"
+$DECLARE 'sv_close(INT())="_lclose"
+LOCAL DIM sv_fh, sv_buf$1000, sv_len
+sv_buf$ = "Hello from KCML" & HEX(0D0A)
+sv_len = LEN(RTRIM(sv_buf$))
+sv_fh = 'sv_creat("C:\Temp\kcmltest.txt",0)
+IF sv_fh <> -1 THEN DO
+    'sv_write(sv_fh,sv_buf$,sv_len)
+    'sv_close(sv_fh)
+END DO
+```
+<!-- UNTESTED -->
+
 ### KCMLWriteClipboard — copy text to Windows clipboard
 
 ```kcml
@@ -129,6 +174,16 @@ $DECLARE 'KCMLWriteClipboard(STR())
 ```
 
 The `STR(buf$,,buf_pos-1)` form passes only the populated portion of the buffer.
+
+```kcml
+REM Copy a part description to the clipboard
+$DECLARE 'KCMLWriteClipboard(STR())
+LOCAL DIM sv_clip$200, sv_p
+sv_clip$ = RTRIM(part_no$) & "  " & RTRIM(description$)
+sv_p = LEN(RTRIM(sv_clip$))
+'KCMLWriteClipboard(STR(sv_clip$,,sv_p))
+```
+<!-- UNTESTED -->
 
 ### SendDlgItemMessage — select a listbox item by index
 
@@ -141,6 +196,19 @@ sv_hwnd = 'sv_getparent('sv_getfocus())
 'sv_senddlg(sv_hwnd,1000,0x0186,sv_found-1,0)
 : REM 1000=listbox control ID, 0x0186=LB_SETCURSEL, sv_found-1=0-based index
 ```
+
+```kcml
+REM Scroll a listbox to show a found item near the top
+$DECLARE 'sv_getfocus()="GetFocus"
+$DECLARE 'sv_getparent(INT())="GetParent"
+$DECLARE 'sv_senddlg(INT(),INT(),INT(),INT(),INT())="SendDlgItemMessage"
+LOCAL DIM sv_hwnd
+sv_hwnd = 'sv_getparent('sv_getfocus())
+: REM LB_SETTOPINDEX = 0x0197 — scroll so item sv_found-1 is at top
+'sv_senddlg(sv_hwnd,1000,0x0197,sv_found-1,0)
+'sv_senddlg(sv_hwnd,1000,0x0186,sv_found-1,0)
+```
+<!-- UNTESTED -->
 
 ---
 

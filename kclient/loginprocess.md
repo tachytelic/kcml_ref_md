@@ -1,5 +1,0 @@
-# <span id="loginprocess"></span> Login process
-
-For a direct, -d flag, connection KClient will display a splash dialog with the copyright information and pass control to the KCML program. If the -t or -T switches were specified it will display a text window otherwise it will defer creating one until the application attempts to print to the screen.
-
-For remote client-server connections a login dialog box will appear. This will contain the name or IP address of the server and the username. The password will be masked by a series of asterisks, eg \*\*\*\*\*. While this dialog is visible, KClient is negotaiting the login sequence, either with the *telnetd* daemon or the [Connection Manager](mk:@MSITStore:kwebserv.chm::/connmgr.htm) If the Connection Manager fails to authenticate the user, then an appropriate [error message](mk:@MSITStore:kwebserv.chm::/connerrors.htm) will be displayed in a message box. If KClient is using a cached password, or is connecting to an NT server using NTLM authentication then no password needs to be supplied.

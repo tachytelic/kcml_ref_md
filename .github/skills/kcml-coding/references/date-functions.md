@@ -28,6 +28,27 @@ DIM date$12
 ```
 Output: `2026-04-04`
 
+```kcml
+REM Round-trip: today as ISO string
+DIM j, d$12
+: j = #DATE
+: CONVERT DATE j TO d$
+: PRINT d$
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM How many days between two dates?
+DIM j1, j2, diff
+: CONVERT DATE "2026-01-01" TO j1
+: CONVERT DATE "2026-04-07" TO j2
+: diff = j2 - j1
+: PRINT diff               : REM 96
+: $END
+```
+<!-- UNTESTED -->
+
 ### R7_DATE2J / R7_J2DATE (Legacy)
 
 Legacy CALL functions using `DD/MM/YY` format. Still available for backward compatibility.
@@ -51,6 +72,27 @@ DIM date$12
 Output: `04/04/2026`
 
 Note: The second parameter to R7_J2DATE is the output width (8 for DD/MM/YY, 10 for DD/MM/CCYY).
+
+```kcml
+REM Legacy: display today as DD/MM/CCYY
+DIM j, d$12
+: j = #DATE
+: CALL R7_J2DATE j, 10 TO d$
+: PRINT d$
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Legacy: convert user-entered DD/MM/YY to Julian then add 30 days
+DIM j, due$12, entry$8
+: entry$ = "01/04/26"
+: CALL R7_DATE2J entry$ TO j
+: CALL R7_J2DATE j + 30, 10 TO due$
+: PRINT "Due: "; due$
+: $END
+```
+<!-- UNTESTED -->
 
 ## Comparison
 
@@ -80,6 +122,18 @@ DIM julian, iso$12
 : $END
 ```
 
+```kcml
+REM Extract year/month/day from $TODAY (YYYYMMDD)
+DIM today$8, yr$4, mo$2, dy$2
+: today$ = $TODAY
+: yr$ = STR(today$, 1, 4)
+: mo$ = STR(today$, 5, 2)
+: dy$ = STR(today$, 7, 2)
+: PRINT "Year="; yr$; " Month="; mo$; " Day="; dy$
+: $END
+```
+<!-- UNTESTED -->
+
 ## Date Arithmetic
 
 Julian dates make arithmetic trivial:
@@ -94,6 +148,35 @@ DIM today, future$12, past$12
 : $END
 ```
 
+```kcml
+REM Is an invoice overdue? (due date vs today)
+DIM due_julian, today_julian, days_late
+: CONVERT DATE "2026-03-01" TO due_julian
+: today_julian = #DATE
+: days_late = today_julian - due_julian
+: IF days_late > 0 THEN PRINT "Overdue by "; days_late; " days" ELSE PRINT "Not overdue"
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Find the first day of next month
+DIM j, d$12, yr$4, mo$2, nm$12
+: j = #DATE
+: CONVERT DATE j TO d$
+: yr$ = STR(d$, 1, 4)
+: mo$ = STR(d$, 6, 2)
+: DIM m
+: m = VAL(mo$) + 1
+: DIM nm_s$10
+: IF m > 12 THEN m = 1 : DIM y : y = VAL(yr$) + 1 : CONVERT y TO yr$,(####)
+: CONVERT m TO mo$,(##) : IF STR(mo$,1,1) == " " THEN STR(mo$,1,1) = "0"
+: nm$ = yr$ & "-" & mo$ & "-01"
+: PRINT nm$
+: $END
+```
+<!-- UNTESTED -->
+
 ## Day of Week
 
 ```kcml
@@ -105,6 +188,28 @@ DIM julian, dow, days$(7,10)
 : PRINT "Today is: "; days$(dow)
 : $END
 ```
+
+```kcml
+REM Is a given date a weekday? (1=Mon ... 5=Fri are weekdays)
+DIM j, dow
+: CONVERT DATE "2026-04-07" TO j
+: dow = MOD(j, 7) + 1          : REM 1=Mon, 7=Sun
+: IF dow <= 5 THEN PRINT "Weekday" ELSE PRINT "Weekend"
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Day-of-week for an ISO date string
+DIM j, d, days$(7,10)
+: MAT READ days$()
+: DATA "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"
+: CONVERT DATE "2026-04-06" TO j
+: d = MOD(j, 7) + 1
+: PRINT RTRIM(days$(d))        : REM "Monday"
+: $END
+```
+<!-- UNTESTED -->
 
 ## Microsoft Excel/VBA Conversion
 
@@ -144,6 +249,28 @@ Output: `Time: 09:41:47`
 - `$TIME` returns a 4-byte packed binary value — looks like garbage when printed, do not use for display
 
 This mirrors `#DATE` / `CONVERT DATE` exactly.
+
+```kcml
+REM Timestamp for a log entry: "2026-04-07 09:41:47"
+DIM ts$20, d$12, t$10
+: CONVERT DATE #DATE TO d$
+: CONVERT TIME #TIME TO t$
+: ts$ = RTRIM(d$) & " " & RTRIM(t$)
+: PRINT ts$
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Extract hours and minutes from #TIME
+DIM t, hrs, mins
+: t = #TIME
+: hrs  = INT(t / 3600)
+: mins = INT(MOD(t, 3600) / 60)
+: PRINT "Hour="; hrs; " Min="; mins
+: $END
+```
+<!-- UNTESTED -->
 
 ---
 

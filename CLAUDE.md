@@ -12,29 +12,22 @@ The core workflow is:
 
 ---
 
-## Execution — Always Use SSH/SCP
+## Execution — Local KCML
 
-The canonical method for running KCML code is SCP + SSH. This avoids all shell escaping issues.
+KCML runs locally. Always run tests in the **foreground** — background processes leak the single-user licence (exit 107/144).
 
-```powershell
-# Quickest: use the helper script
-.\kcml_executor\run_kcml.ps1 -Code 'PRINT "Hello" : $END'
-.\kcml_executor\run_kcml.ps1 -File .\mytest.kcml
+```bash
+# Write script to a temp file, then run:
+LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so \
+MAC_ADDRESS="00:0c:44:88:7a:4c" \
+SPOOF_HOSTNAME="640UK" \
+/usr/lib/kcml/kcml -p /tmp/test.kcml
 ```
 
-Manual method (if needed):
-```powershell
-# 1. Write code to a temp file
-[System.IO.File]::WriteAllText("$env:TEMP\test.kcml", 'DIM x : x = 42 : PRINT x : $END')
-
-# 2. SCP to server
-& "C:\Windows\System32\OpenSSH\scp.exe" -q -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa "$env:TEMP\test.kcml" interpartuk@10.1.1.213:/tmp/test.kcml
-
-# 3. Execute
-& "C:\Windows\System32\OpenSSH\ssh.exe" -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa interpartuk@10.1.1.213 "/usr/lib/kcml/kcml -p /tmp/test.kcml"
-```
-
-**Server:** `interpartuk@10.1.1.213` — Ubuntu 8.04, legacy SSH algorithms required, key auth (passwordless).
+Required environment variables (must be set every invocation):
+- `LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so`
+- `MAC_ADDRESS="00:0c:44:88:7a:4c"`
+- `SPOOF_HOSTNAME="640UK"`
 
 ---
 
@@ -58,9 +51,8 @@ Manual method (if needed):
     screen-io.md            # Screen, windows, PRINT AT, KEYIN, menus
     com-chaining.md         # COM variables and LOAD/CHAIN program linking
 
-kcmlrefman/                 # Full language reference (converted from HTML help)
+kcmlrefman_md/              # Full language reference — 393 markdown files (primary reference source)
 kcml_executor/              # Python execution server + PowerShell helper scripts
-kcml_source/PF/             # Real KCML business application source files (.Bre)
 ```
 
 ---
@@ -69,10 +61,11 @@ kcml_source/PF/             # Real KCML business application source files (.Bre)
 
 When Claude discovers new KCML behaviour through testing:
 
-1. **Update the relevant reference file** in `.github/skills/kcml-coding/references/`
-2. **Add patterns to SKILL.md** if they are common enough to include in the quick reference
+1. **Update the relevant markdown file** in `kcmlrefman_md/` — this is the primary reference source (393 files covering the full language)
+2. **Update the relevant reference file** in `.github/skills/kcml-coding/references/` if the topic is covered there
+3. **Add patterns to SKILL.md** if they are common enough to include in the quick reference
 
-When a tested code example reveals a quirk not in the docs, add it to the appropriate reference file with a comment like `REM Verified by execution`.
+When a tested code example reveals a quirk not in the docs, add it to the appropriate `kcmlrefman_md/` file with a comment like `REM Verified by execution`.
 
 ---
 
@@ -82,7 +75,7 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 - Strings are **fixed-length and space-padded** — `LEN()` returns content length excluding trailing spaces
 - Arrays are **1-based**: `DIM arr(10)` gives elements 1 through 10
 - Script mode (kcml -p): statements separated by `:`, continuation lines start with `: `
-- Every script must end with `$END`
+- `$END` terminates the KCML session — in `-p` scripts the interpreter exits naturally when it runs out of statements, so `$END` is not required at the end but is used to exit early
 - Use `HEX(22)` for embedded quote characters — **not** `CHR$(34)`
 - **Never put `:` in a REM statement** — KCML treats `:` as a statement separator even inside REM text, causing syntax errors. This includes URLs — `http://` breaks REM; write `http [colon] //` instead
 - `DEFFN` (older syntax) and `DEFSUB`/`END SUB` (modern) both work; real source uses `DEFFN`
@@ -96,26 +89,12 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 
 ---
 
-## Source Code Reference
-
-`kcml_source/PF/` contains real KCML business programs. Both the extensionless files and the `.Bre` files are source — they are not compiled/source pairs.
-
-The `.Bre` extension relates to the `$SPECIAL` environment variable mechanism: when `$SPECIAL=Bre` is set for a customer, the KCML runtime loads `PROGRAM.Bre` instead of `PROGRAM` (the base version). This is how the ERP supports per-customer modifications — the `.Bre` file overrides the base program for that customer without touching the standard code. Reading both reveals real-world patterns that may not appear in the reference manual.
-
-Key files studied:
-- `MENU.Bre` — menu structure, LOAD, DATA statements, DEFFN, MAT REDIM
-- `MUP.Bre` — full CRUD maintenance program, screen display, field definitions
-- `DISP.Bre` — stock display, PRINT AT, KEYIN, BOX, window patterns
-- `START.Bre` — COM declarations, PACK/UNPACK, program chaining
-
----
-
 ## What NOT to Do
 
 - Do not use `CHR$(34)` — use `HEX(22)` for quotes in strings
 - Do not use `INPUT` in scripts run with `kcml -p` — non-interactive, will hang
 - Do not forget `$END` at the end of every script
-- Do not use the HTTP server (`localhost:8765`) for complex code with subroutines — it may hang; prefer SSH
+- **Never background KCML processes** — they exhaust the single-user licence; always run foreground
 - **Never use blank lines in `kcml -p` scripts** — a blank line silently terminates execution. Use `: REM` lines for spacing. Bare `REM` (without `: ` prefix) also terminates the script mid-run.
 - **Never use 4-param `KI_OPEN`** in KCML 6.x — `CALL KI_OPEN handle, stream, file$, mode$` causes an S24 panic. Use `CALL KI_OPEN handle, file$, mode$ TO status` (3 params).
 

@@ -52,6 +52,16 @@ DIM nums(10)
 : $END
 ```
 
+```kcml
+DIM scores(5)
+: scores() = ZER
+: scores(3) = 99
+: PRINT scores(1)         : REM 0
+: PRINT scores(3)         : REM 99
+: $END
+```
+<!-- UNTESTED -->
+
 ### Initialize Strings
 
 ```kcml
@@ -60,6 +70,16 @@ DIM names$(5, 20)
 : names$() = " "          : REM Fill with spaces
 : $END
 ```
+
+```kcml
+DIM tags$(3, 4)
+: tags$() = ALL("-")
+: tags$(2) = "LIVE"
+: PRINT tags$(1)           : REM "----"
+: PRINT tags$(2)           : REM "LIVE"
+: $END
+```
+<!-- UNTESTED -->
 
 ### Array Bounds
 
@@ -72,6 +92,18 @@ DIM arr(10)
 : $END
 ```
 
+```kcml
+DIM vals(3)
+: vals(1) = 10 : vals(2) = 20 : vals(3) = 30
+: DIM i, total
+: FOR i = 1 TO 3
+:    total += vals(i)
+: NEXT i
+: PRINT total              : REM 60
+: $END
+```
+<!-- UNTESTED -->
+
 ### Dynamic Resizing: MAT REDIM
 
 ```kcml
@@ -82,6 +114,28 @@ DIM data(0)               : REM Start with size 0
 : MAT REDIM data(0)       : REM Free memory
 : $END
 ```
+
+```kcml
+DIM lines$(0, 80)
+: DIM n
+: n = 0
+: MAT REDIM lines$(++n, 80) : lines$(n) = "First"
+: MAT REDIM lines$(++n, 80) : lines$(n) = "Second"
+: PRINT lines$(1)          : REM "First"
+: PRINT lines$(2)          : REM "Second"
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+DIM buf(0)
+: MAT REDIM buf(5)
+: buf() = CON
+: PRINT buf(3)             : REM 1  (CON fills with ones)
+: MAT REDIM buf(0)         : REM free
+: $END
+```
+<!-- UNTESTED -->
 
 ## Matrix Operations
 
@@ -132,6 +186,16 @@ DIM arr(10), pos
 : $END
 ```
 
+```kcml
+DIM codes$(5, 4), idx
+: codes$(1) = "AABB" : codes$(2) = "CCDD" : codes$(3) = "EEFF"
+: codes$(4) = "GGHH" : codes$(5) = "IIJJ"
+: MAT SEARCH codes$() FOR "EEFF" GIVING idx
+: PRINT idx                           : REM 3
+: $END
+```
+<!-- UNTESTED -->
+
 ## Constants
 
 Variables starting with `_` are constants - set once, cannot change:
@@ -146,6 +210,26 @@ DIM _PI = 3.14159
 
 Built-in constant: `#PI` = 3.14159265359
 
+```kcml
+DIM _VATRATE = 20
+DIM price, vat
+: price = 100
+: vat = price * _VATRATE / 100
+: PRINT vat                          : REM 20
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+DIM _STATUS_LIVE$4 = "LIVE"
+DIM _STATUS_ARCH$4 = "ARCH"
+DIM rec_status$4
+: rec_status$ = _STATUS_LIVE$
+: IF rec_status$ == _STATUS_LIVE$ THEN PRINT "Active record"
+: $END
+```
+<!-- UNTESTED -->
+
 ## Global Variables
 
 Variables starting with `@` are shared across partitions:
@@ -156,6 +240,14 @@ DIM @shared_counter
 : PRINT "Counter: "; @shared_counter
 : $END
 ```
+
+```kcml
+REM Reading a global string declared in the global partition
+: PRINT "Company: "; @company_name$
+: PRINT "Site:    "; @site_code$
+: $END
+```
+<!-- UNTESTED -->
 
 ## Field Variables
 
@@ -187,3 +279,22 @@ DIM myvar$20, ptr
 : PRINT myvar$                   : REM "World"
 : $END
 ```
+
+```kcml
+REM SYM() is most commonly used to pass a variable by reference to a library sub
+DIM name$30
+: name$ = "hello world"
+: GOSUB 'LOWTOUP(SYM(name$))     : REM Uppercase in place
+: PRINT name$                    : REM "HELLO WORLD"
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+REM Negative SYM index distinguishes global from local variables
+DIM local_var$10, gbl_ptr
+: local_var$ = "test"
+: PRINT (SYM(local_var$) > 0 ? "local" : "global")   : REM "local"
+: $END
+```
+<!-- UNTESTED -->

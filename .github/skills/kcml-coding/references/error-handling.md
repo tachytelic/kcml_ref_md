@@ -37,6 +37,31 @@ DEFSUB 'safe_divide(a, b)
 : END SUB
 ```
 
+```kcml
+DIM answer
+: TRY
+:    answer = 10 / 0
+: CATCH ERR 62
+:    PRINT "Division by zero caught"
+:    answer = 0
+: END TRY
+: PRINT answer
+: $END
+```
+<!-- UNTESTED -->
+
+```kcml
+DIM ec
+: TRY
+:    OPEN #1, "nonexistent.txt", "r"
+: CATCH
+:    ec = ERR
+:    PRINT "Error "; ec; ": "; ERR$(ec)
+: END TRY
+: $END
+```
+<!-- UNTESTED -->
+
 ### Catching Multiple Error Codes
 
 ```kcml
@@ -50,6 +75,23 @@ TRY
 :   PRINT "Unexpected error: "; ERR
 : END TRY
 ```
+
+```kcml
+DIM filename$50, ok
+: filename$ = "data.txt"
+: ok = 0
+: TRY
+:    OPEN #1, filename$, "r"
+:    ok = 1
+: CATCH ERR 82, 83
+:    PRINT "File not accessible: "; filename$
+: CATCH
+:    PRINT "Unexpected open error: "; ERR
+: END TRY
+: IF ok THEN CLOSE #1
+: $END
+```
+<!-- UNTESTED -->
 
 ### Nested TRY Blocks
 

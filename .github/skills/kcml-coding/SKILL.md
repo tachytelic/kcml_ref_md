@@ -142,31 +142,38 @@ CONVERT number TO result$, (###.##)
 
 ## Code Execution
 
-### SSH/SCP Method (Recommended)
+### Local Execution (Recommended — Linux with KCML installed)
 
-Execute KCML via SSH with SCP file transfer. This avoids shell escaping issues:
+KCML is installed locally at `/usr/lib/kcml/kcml`. Write code to a temp file and run directly:
+
+```bash
+# Write script to temp file
+cat > /tmp/test.kcml << 'EOF'
+DIM x : x = 42 : PRINT x : $END
+EOF
+
+# Run with required env vars
+export MAC_ADDRESS="00:0c:44:88:7a:4c"
+export SPOOF_HOSTNAME="640UK"
+export LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so
+/usr/lib/kcml/kcml -p /tmp/test.kcml
+```
+
+Or as a one-liner:
+```bash
+export MAC_ADDRESS="00:0c:44:88:7a:4c" && export SPOOF_HOSTNAME="640UK" && export LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so && /usr/lib/kcml/kcml -p /tmp/test.kcml
+```
+
+### SSH/SCP Method (Legacy — Windows development only)
+
+This was the previous method when developing on Windows. No longer needed on Linux.
 
 ```powershell
 # Use the helper script
 .\kcml_executor\run_kcml.ps1 -Code 'PRINT "Hello World" : $END'
-
-# Or with a file
-.\kcml_executor\run_kcml.ps1 -File .\myprogram.kcml
 ```
 
-Manual execution:
-```powershell
-# Create temp file
-[System.IO.File]::WriteAllText("$env:TEMP\test.kcml", 'DIM x : x = 42 : PRINT x : $END')
-
-# SCP to server
-& "C:\Windows\System32\OpenSSH\scp.exe" -q -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa "$env:TEMP\test.kcml" interpartuk@10.1.1.213:/tmp/test.kcml
-
-# Execute via SSH
-& "C:\Windows\System32\OpenSSH\ssh.exe" -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa interpartuk@10.1.1.213 "/usr/lib/kcml/kcml -p /tmp/test.kcml"
-```
-
-**Server Details:**
+**Server Details (legacy):**
 - Host: 10.1.1.213 (Ubuntu 8.04 - requires legacy SSH algorithms)
 - User: interpartuk (key auth configured, passwordless sudo)
 - KCML path: `/usr/lib/kcml/kcml -p`
