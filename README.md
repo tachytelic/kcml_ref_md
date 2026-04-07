@@ -1,78 +1,97 @@
 # KCML Reference Documentation
 
-This repository contains the reference documentation for **KCML** (Kerridge Computer Macro Language), a powerful multi-platform programming language descended from Wang BASIC-2.
+This repository contains reference documentation and a Claude Code skill for **KCML** (Kerridge Computer Macro Language), a multi-platform 4GL descended from Wang BASIC-2.
 
 ## What is KCML?
 
-KCML is an incremental compiler that combines the best features of compiled and interpreted languages. Originally developed by Kerridge Computer Company in 1985 to succeed the Wang 2200 BASIC-2 system, KCML has evolved through four generations into a modern Rapid Application Development (RAD) environment.
+KCML is an incremental compiler combining the best features of compiled and interpreted languages. Originally developed by Kerridge Computer Company in 1985 to succeed the Wang 2200 BASIC-2 system, KCML has evolved into a modern Rapid Application Development (RAD) environment used by 80,000+ end users worldwide for commercial ERP applications.
 
 ### Key Features
 
-- **Cross-platform compatibility** - Programs and data files work unchanged across Windows, AIX, HP-UX, Solaris, Digital Unix, and more
-- **Multi-user support** - True multi-user capabilities with automatic file/record locking and unique terminal numbering
-- **Built-in database** - Integrated relational database with B-tree indexing, supporting both SQL and direct ISAM operations
-- **Client-server architecture** - Designed for wide area networks and Internet connectivity
-- **GUI and text applications** - Supports both modern forms-based interfaces and traditional text terminals
+- **Cross-platform** — Programs and data files run unchanged across Windows, Linux, AIX, HP-UX, Solaris, and more
+- **Multi-user** — True multi-user with automatic file/record locking and unique terminal numbering
+- **Built-in database** — Integrated KISAM B-tree database with SQL and direct ISAM operations
+- **Client-server** — Designed for wide area networks; KClient provides a GUI forms and text client
+- **GUI and text** — Supports both modern forms-based interfaces and traditional text terminals
 
-### History
+---
 
-- **1985** - Development began; first version written in C on Motorola 68000/XENIX
-- **Late 1980s** - Second generation released with improved Wang compatibility
-- **1991** - Third generation introduced DOS version, Windows terminal emulator
-- **Present** - Fourth generation provides full RAD environment with integrated editor, debugger, and forms designer
+## Repository Structure
 
-## Documentation Structure
+```
+kcmlrefman_md/          # Full language reference — 393 markdown files (primary source)
+.github/skills/
+  kcml-coding/
+    SKILL.md            # Claude Code skill — quick reference and coding guide
+    references/         # Detailed topic reference files
+kcml_executor/          # Local KCML execution helpers
+```
 
-| Folder | Description |
-|--------|-------------|
-| [kcmlrefman/](kcmlrefman/) | **Language Reference Manual** - Core language statements, functions, operators, tutorials, and platform-specific information |
-| [kclient/](kclient/) | **KCML Client** - Windows client application for connecting to KCML servers (forms and text display) |
-| [kcmlforms/](kcmlforms/) | **Forms Designer** - GUI forms creation and management documentation |
-| [kdb/](kdb/) | **Kerridge Database** - Built-in relational database, SQL reference, and data management utilities |
-| [kwebserv/](kwebserv/) | **Web Server** - KCML web server configuration, authentication, and web services |
-| [workbench/](workbench/) | **Workbench IDE** - Integrated development environment with editor, debugger, and program management |
+### `kcmlrefman_md/` — Language Reference (393 files)
 
-## Language Reference Highlights
+The complete KCML language reference, converted from the original HTML help files to clean markdown. Covers:
 
-The language reference includes:
+- All statements, functions, operators, and system variables
+- Control flow, data types, string and numeric functions
+- File I/O (sequential, random, KISAM/KDB)
+- Error handling (TRY/CATCH, ON ERROR, TRAP)
+- GUI forms (DEFFORM, DEFEVENT, controls)
+- COM, CORBA, and SOAP object integration
+- XML (DOM and SAX via Xerces)
+- Text terminals (VT100, VT220, Wyse, KClient, TERMINFO)
+- Tutorials (files, sorting, Unicode, shell, configuration)
+- Admin utilities (bkstat, tik, compile, kat, kconf, bkstat)
+- ASP/multi-tenant deployment
 
-- **100+ statements and functions** - PRINT, INPUT, DIM, FOR/NEXT, WHILE, SELECT, and more
-- **Matrix operations** - Built-in matrix arithmetic (MAT ADD, MAT INV, MAT TRN, etc.)
-- **String handling** - Comprehensive string manipulation functions
-- **File I/O** - Sequential and random access file operations
-- **Error handling** - TRY/THROW/TRAP exception handling
-- **COM/OLE automation** - Windows component integration
-- **XML support** - DOM and SAX parsing capabilities
-- **SOAP/CORBA** - Enterprise integration support
+### `.github/skills/kcml-coding/` — Claude Code Skill
 
-## Related Products
+A Claude Code skill that enables Claude to write, test, and debug KCML code:
 
-- **Kclient** - Freely distributable Windows client for displaying forms and text windows
-- **Kprint** - Distributed printing system for rich document output over WANs
-- **KMail** - Windows-based mail client for UNIX hosts
+- `SKILL.md` — Quick reference covering syntax rules, common patterns, and execution
+- `references/` — Detailed topic files: data types, arrays, control flow, string functions, date functions, error handling, subroutines, screen I/O, and more
 
-## Target Audience
+### `kcml_executor/` — Execution Helpers
 
-KCML is used by 80,000+ end users worldwide for:
-- General accounting and inventory management
-- Vehicle dealership management systems
-- Distribution and logistics
-- Hotel management
-- Travel booking and reservations
-- And many other commercial applications
+Scripts for running KCML code locally during development and testing.
 
-## KCML Code Execution Server
+---
 
-The `kcml_executor/` folder contains a Python-based execution server that allows Claude to write and test KCML code:
+## Using the Claude Code Skill
 
-- **server.py** - HTTP server for remote KCML execution
-- **mcp_server.py** - MCP protocol server for direct Claude integration
+The skill at `.github/skills/kcml-coding/SKILL.md` gives Claude everything needed to write correct KCML:
 
-See [kcml_executor/README.md](kcml_executor/README.md) for deployment instructions.
+- Syntax rules (DIM, string sizing, array indexing, script mode)
+- Common pitfalls (blank lines in `-p` mode, `:` in REMs, `HEX(22)` for quotes)
+- Execution instructions for local testing
+- KISAM file access patterns
+- DEFFORM / DEFEVENT patterns
+
+For any language detail not in the skill, Claude can consult `kcmlrefman_md/`.
+
+---
+
+## Language Quick Reference
+
+| Area | Key files in `kcmlrefman_md/` |
+|------|-------------------------------|
+| Statements A–Z | `ABS(.md`, `DIM.md`, `FOR.md`, `IF.md`, `PRINT.md`, `SELECT*.md`, … |
+| Control flow | `FOR.md`, `WHILE.md`, `REPEAT.md`, `IF.md`, `IFENDIF.md`, `DO.md` |
+| String functions | `STR.md`, `LEN(.md`, `POS.md`, `RTRIM.md`, `LTRIM.md`, `VER.md` |
+| Numeric functions | `ABS(.md`, `INT(.md`, `ROUND.md`, `SQR.md`, `SIN.md`, … |
+| Date/time | `_DATE.md`, `_TIME.md`, `CONVERT_DATE.md`, `JulianDate.md`, `timezone.md` |
+| File I/O | `OPENhash.md`, `READhash.md`, `WRITEhash.md`, `SEEKhash.md` |
+| Error handling | `TRY.md`, `ERROR.md`, `ON_ERROR.md`, `TRAP.md`, `THROW.md` |
+| Forms | `DEFFORM.md`, `DEFEVENT.md`, `DEFOBJ.md` |
+| Objects/COM | `comintro.md`, `cominst.md`, `commethod.md`, `ObjCOM.md`, `ObjSoap.md` |
+| System constants | `_PART.md`, `_TERM.md`, `_LINE.md`, `_GOLDKEY.md` |
+| Utilities | `bkstat.md`, `compile.md`, `kat.md`, `tik.md`, `kconf.md` |
+| Tutorials | `Tutorial*.md` (15 tutorials covering files, sorting, Unicode, and more) |
+
+---
 
 ## Origin
 
-This documentation was converted from the original KCML HTML help files to Markdown format for improved accessibility and version control.
+The `kcmlrefman_md/` files were converted from the original KCML HTML help system to Markdown for improved accessibility, version control, and use as an AI coding assistant knowledge base.
 
 ## License
 
