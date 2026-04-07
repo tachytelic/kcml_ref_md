@@ -261,7 +261,7 @@ DIM result$100 : result$ = "Hello" : PRINT result$ : $END
 ## Procedure for Generating KCML
 
 1. **Understand the requirement** - What should the code do?
-2. **Check documentation** - Reference files in `kcmlrefman/` for syntax
+2. **Check documentation** - Reference files in `kcmlrefman_md/` for syntax
 3. **Write initial code** - Use patterns from this skill
 4. **Execute and verify** - Send to execution server
 5. **Iterate if needed** - Fix errors based on output
@@ -653,13 +653,15 @@ END SELECT
 
 ## Source Documentation
 
-Full KCML documentation is in the `kcmlrefman/` folder:
+Full KCML documentation is in the `kcmlrefman_md/` folder (393 files). Key files:
 
-- **IntroLangBasics.md** - Variables, arrays, constants
-- **IntroLangFeatures.md** - Advanced features
-- **FOR.md**, **WHILE.md**, **DO.md** - Loop constructs
+- **DIM.md**, **COM.md** - Variable declarations
+- **FOR.md**, **WHILE.md**, **DO.md**, **REPEAT.md** - Loop constructs
 - **IFENDIF.md**, **SELECT_CASE.md** - Conditionals
 - **PRINT.md**, **PRINTUSING.md** - Output formatting
-- **DIM.md**, **COM.md** - Variable declarations
-- **CONVERT_DATE.md** - Date conversion functions
-- **Tutorial*.md** - Step-by-step tutorials
+- **CONVERT_DATE.md**, **_DATE.md**, **_TIME.md** - Date/time
+- **OPENhash.md**, **READhash.md**, **WRITEhash.md** - Sequential file I/O
+- **TRY.md**, **ON_ERROR.md**, **TRAP.md**, **THROW.md** - Error handling
+- **DEFFORM.md**, **DEFEVENT.md**, **DEFOBJ.md** - GUI forms
+- **comintro.md**, **ObjSoap.md** - COM/SOAP object integration
+- **Tutorial*.md** - Step-by-step tutorials (15 topics)
