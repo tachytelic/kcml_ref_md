@@ -1,3 +1,0 @@
-<span id="Objects" objects=""></span>Objects
-
-An object is a self-contained entity which contains all of the information about its activities and data within itself. In KCML, object types include forms, controls, database tables and database queries. Objects are referenced by properties which determine their appearance and actions. For example, a button will have its size and status (Enabled or Disabled) set in the properties list. These properties can either be edited as part of the design process or can be directly referenced by the program. Objects can also be referenced by methods which are used to exchange messages between an object and its program.

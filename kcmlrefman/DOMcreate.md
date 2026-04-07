@@ -1,7 +1,0 @@
-### Creating a DOM document
-
-To create an XML document from scratch using the DOM you need to use the [implementation](tmp/dyndom.htm#implementation) object as in the example below. This is a KCML specific extension which gets around deficiencies in the Xerces DOM implementation. You can then create a empty document with a root node and hang the rest of the document from that. The example uses the 'printnode() function from the [printing example](DOMprint.htm).
-
-REM demonstrate creating a DOM from scratch DIM OBJECT x, OBJECT imp, OBJECT doc, OBJECT node, OBJECT a, OBJECT n, OBJECT dtd OBJECT x = CREATE "dynamic", "dyndom" REM get the DOM implementation OBJECT imp = x.Implementation OBJECT dtd = NULL REM create an empty document with a root node but no namespace or DTD OBJECT doc = imp.createDocument(0, "root", OBJECT dtd) REM get the root node OBJECT node = doc.DocumentElement REM add a tag OBJECT n = doc.createElement("one") node.appendChild(OBJECT n) REM with some text OBJECT a = doc.createTextNode("Hello world") n.appendChild(OBJECT a) REM add another (empty) tag at the same level as the previous OBJECT n = doc.createElement("two") node.appendChild(OBJECT n) REM give this 2nd tag an attribute n.setAttribute("namestring", "valuestring") REM add a comment infront of this tag OBJECT a = doc.createComment("Commenting is good practice") node.insertBefore(OBJECT a, OBJECT n) REM now print the tree REM get its root element OBJECT elm = doc.DocumentElement count = 'printnode(OBJECT elm, 0) ...
-
-For other XML DOM examples click [here](xerces.htm).

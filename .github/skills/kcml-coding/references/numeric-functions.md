@@ -401,12 +401,27 @@ DIM data(100, 50)
 
 ### Modulo (Remainder)
 
-KCML doesn't have a MOD operator, but you can calculate:
+KCML has a built-in `MOD(` function:
 
 ```kcml
-DEFFN mod(a, b) = a - INT(a / b) * b
+remainder = MOD(17, 5)    : REM Returns 2
+```
 
-: remainder = FN mod(17, 5)  : REM Returns 2
+General form:
+```kcml
+MOD(numeric_expression, numeric_expression)
+```
+
+Common uses:
+```kcml
+REM - Even/odd test
+IF MOD(sv_i, 2) == 0 THEN PRINT "even"
+
+REM - Wrap a counter at N
+counter = MOD(counter + 1, total)
+
+REM - Check divisible by N
+IF MOD(value, 10) == 0 THEN PRINT "multiple of 10"
 ```
 
 ### Rounding to N Decimal Places

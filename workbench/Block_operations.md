@@ -1,9 +1,0 @@
-## Block operations
-
-A block of text can be marked and manipulated as one object in a process called **selection**. A marked block can be deleted, copied or pasted in one operation. Selection is indicated by displaying the text in reverse video.
-
-Holding down SHIFT with any of the navigational keys described above can be used to select text. Thus to select from the cursor to the end of the current line press SHIFT END and to select the whole program go to the beginning using CTRL HOME and mark with SHIFT CTRL END. Moving the cursor off the bottom or top of the text area causes the screen to scroll, allowing large areas to be marked. Alternatively, the toggle mark key (CTRL K) may be used to toggle marking on, the navigation keys can be used to mark out the selection and then marking can be turned off again with CTRL K again. A section of text may be marked, from a few characters to whole lines including line numbers.
-
-Text can also be selected with the mouse by dragging using the left mouse button marking out the text from where the button was depressed to where it was released. An entire statement can be marked with a single mouse click inside the line while holding down the CTRL key. Using the SHIFT key with the mouse will extend a selection thus to mark between where the text cursor is and another point hold down shift and click the other point. This has the side effect of moving the text cursor to the other point. To mark between two arbitrary points click the first one to move the cursor there then hold down SHIFT and click the second.
-
-The object at the cursor can be selected as one unit with F5. Thus pressing F5 with the cursor under STR( will select from the S of STR( to the matching close parenthesis. An object can also be selected with a left double click of the mouse. A right click of the mouse will bring up a [context menu](wbcontext.htm).

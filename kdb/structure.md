@@ -1,7 +1,0 @@
-Database structure
-
-There can be more than one native KDB database on a server. The overall schema defining the available databases is held in the KCML configuration repository (currently implemented as kconf.xml in the KCML install directory on the server). Each database has an associated **catalog** table and an optional **permissions** table. A user with database administrator permissions can create a new database by executing the [CREATE DATABASE](CREATE_DB.htm) SQL statement which updates the overall schema.
-
-The catalog lists the tables that make up the database. Each table is implemented as a native operating system file and the table contains its own self descriptive metadata defining the columns and table properties. The file also contains all the index blocks associated with the table. Entries are added to the catalog by [CREATE TABLE](CREATE_TABLE.htm) and removed by [DROP TABLE](DROP_TABLE.htm). Columns can be added, dropped, altered or renamed using [ALTER TABLE](ALTER_TABLE.htm) statements.
-
-Tables are associated with **tablespaces** which abstract the concept of an operating system directory and tell the database where to place the physical storage for the table. Tablespaces exist outside of databases and are created with the [CREATE TABLESPACE](CREATE_TABLESPACE.htm) statement which puts an entry in the KCML configuration repository defining its properties. They are either flat where all the tables exist at one level or tree structured where the table name is broken down into subdirectories.

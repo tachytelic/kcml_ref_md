@@ -1,0 +1,32 @@
+DIM result
+01001 - DEFFORM ColorTest()=\
+          {.form,.form$,.Style=0x50c000c4,.Width=500,.Height=300,.Text$="BackColor Test",.Id=1024},\
+          {.ok,.button$,.Style=0x50010001,.Left=420,.Top=5,.Width=70,.Height=14,.Text$="Close",.__Anchor=5,.Id=1,.Font=.SegoeControl},\
+          {.grid,.KCMLgrid$,.Style=0x50010030,.Left=5,.Top=25,.Width=480,.Height=240,.Id=1000,.Rows=9,.Cols=3,.FixedRows=1,.Font=.ConsolasGrid},\
+          {.SegoeControl,.dlgfont$,.Size=10},\
+          {.ConsolasGrid,.dlgfont$,.Name$="Consolas",.Size=10},\
+          {.clrAlt,.color$,.Red=242,.Green=242,.Blue=245},\
+          {.clrWht,.color$,.Red=255,.Green=255,.Blue=255}
+    :     + DEFEVENT ColorTest.Enter()
+    :         LOCAL DIM sv_i
+    :         .grid.Cell(0,1).Heading$ = "Col A"
+    :         .grid.Cell(0,2).Heading$ = "Col B"
+    :         .grid.Cell(0,3).Heading$ = "Col C"
+    :         FOR sv_i = 2 TO 9
+    :             .grid.Cell(sv_i,1).Text$ = "Row " & sv_i & " A"
+    :             .grid.Cell(sv_i,2).Text$ = "Row " & sv_i & " B"
+    :             .grid.Cell(sv_i,3).Text$ = "Row " & sv_i & " C"
+    :             IF MOD(sv_i,2) == 0 THEN DO
+    :                 .grid.Cell(sv_i,1).BackColor = &.clrAlt
+    :                 .grid.Cell(sv_i,2).BackColor = &.clrAlt
+    :                 .grid.Cell(sv_i,3).BackColor = &.clrAlt
+    :             END DO
+    :             IF MOD(sv_i,2) <> 0 THEN DO
+    :                 .grid.Cell(sv_i,1).BackColor = &.clrWht
+    :                 .grid.Cell(sv_i,2).BackColor = &.clrWht
+    :                 .grid.Cell(sv_i,3).BackColor = &.clrWht
+    :             END DO
+    :         NEXT sv_i
+    :     END EVENT
+    : FORM END ColorTest
+01002 result = ColorTest.Open()

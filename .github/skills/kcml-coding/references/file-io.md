@@ -2,6 +2,114 @@
 
 Complete reference for file operations in KCML.
 
+---
+
+## DATA LOAD DC — Stream-Based Sequential File Access
+
+The DC (Data Channel) mechanism is the standard way to read sequential files in the ERP.
+It uses pre-allocated stream handles (`gb_h()`) rather than plain `OPEN #n`.
+
+```kcml
+DATA LOAD DC OPEN T#gb_h(212), filename$   : REM open file on stream handle
+: ERROR GOTO error_label                    : REM file not found / cannot open
+```
+
+After opening, read chunks with `DATA LOAD BU`:
+
+```kcml
+DATA LOAD BU T#gb_h(212),(filepos,nextpos)buf$
+: REM reads up to LEN(buf$) bytes starting at filepos
+: REM nextpos is updated to new file position
+: REM filepos == nextpos signals EOF
+```
+
+Close the stream:
+```kcml
+DATA SAVE DC CLOSE #gb_h(212)
+```
+
+### Buffered read loop (verified pattern from MANAG)
+
+```kcml
+DIM printbuf$1000, filepos, nextpos, lppos, endpos, q9, eof_flag
+: DATA LOAD DC OPEN T#gb_h(212),sel_file$
+: ERROR DO
+:     REM file not found
+: END DO
+: ELSE DO
+:     filepos = 0
+:     eof_flag = 0
+:     REPEAT
+:         DATA LOAD BU T#gb_h(212),(filepos,nextpos)printbuf$
+:         IF filepos == nextpos THEN eof_flag = 1
+:         IF eof_flag == 0 THEN DO
+:             lppos = 1
+:             endpos = nextpos - filepos
+:             REPEAT
+:                 q9 = POS(STR(printbuf$,lppos,endpos) == HEX(0A))
+:                 IF q9 > 0 THEN DO
+:                     IF q9 == 1 THEN PRINT
+:                     ELSE PRINT STR(printbuf$,lppos,q9-1)
+:                     endpos -= q9
+:                     lppos += q9
+:                 END DO
+:             UNTIL q9 == 0 OR endpos <= 0
+:             IF endpos > 0 THEN PRINT STR(printbuf$,lppos,endpos);
+:             filepos = nextpos
+:         END DO
+:     UNTIL eof_flag == 1
+:     DATA SAVE DC CLOSE #gb_h(212)
+: END DO
+```
+
+### gb_h() stream handles
+
+In the ERP, stream handles are pre-allocated in the global partition:
+- `gb_h(212)` — general-purpose DC stream (spool files, config files)
+- `gb_h(213)` — SPOOLMAST binary file stream
+- `gb_h(255)` — printer/terminal device stream
+
+The `SELECT #handle <directory>` statement points a handle at a directory before opening files on it:
+```kcml
+SELECT #gb_h(212) <spool_dir$>    : REM all opens on gb_h(212) now relative to spool_dir$
+```
+
+---
+
+## OPEN #n — Character-Level File Read
+
+For reading text files character by character (e.g. loading a spool file into a listbox),
+use plain `OPEN #n` with `READ #n,ch$`:
+
+```kcml
+DIM ch$1, line_acc$300, la_pos, sv_by
+: la_pos = 1
+: OPEN #6, filepath$, "r"
+: REPEAT
+:     sv_by = READ #6, ch$
+:     IF ch$ == HEX(0A) THEN DO
+:         IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$,,la_pos-1))
+:         IF la_pos == 1 THEN .lstContent.Add(" ")   : REM blank line
+:         la_pos = 1
+:         line_acc$ = " "
+:     END DO
+:     IF ch$ <> HEX(0A) AND ch$ <> HEX(0D) THEN DO
+:         IF la_pos < 300 THEN STR(line_acc$,la_pos,1) = ch$
+:         la_pos++
+:     END DO
+: UNTIL END
+: IF la_pos > 1 THEN .lstContent.Add(STR(line_acc$,,la_pos-1))
+: CLOSE #6
+```
+
+Key points:
+- `UNTIL END` loops until EOF — the `END` condition is set by `READ` returning 0 bytes
+- `HEX(0D)` (CR) is skipped — only `HEX(0A)` (LF) triggers a new line
+- The `la_pos > 1` guard handles blank lines (just LF with no preceding content)
+- Use a trailing `IF la_pos > 1` after the loop to catch the final line with no terminating LF
+
+---
+
 ## File Streams
 
 KCML uses numbered streams (1-99) for file operations. Each stream can have one file open at a time.

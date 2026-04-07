@@ -333,12 +333,14 @@ For in-depth coverage of specific topics, see the reference files:
 | String Functions | [string-functions.md](./references/string-functions.md) | STR(), LEN(), POS(), $UPPER/$LOWER, concatenation |
 | Control Flow | [control-flow.md](./references/control-flow.md) | IF/ELSE, FOR, WHILE, DO-LOOP, SELECT CASE, GOSUB |
 | Arrays & Variables | [arrays-variables.md](./references/arrays-variables.md) | DIM, COM, arrays, MAT operations, constants, globals |
-| File I/O | [file-io.md](./references/file-io.md) | OPEN#, READ#, WRITE#, SEEK#, CLOSE#, sockets, pipes |
+| File I/O | [file-io.md](./references/file-io.md) | OPEN#, READ#, WRITE#, DATA LOAD DC, buffered chunk reads, sockets, pipes |
 | Error Handling | [error-handling.md](./references/error-handling.md) | TRY/CATCH, THROW ERR, ERR function, error codes |
 | Subroutines | [subroutines.md](./references/subroutines.md) | DEFSUB, GOSUB, RETURN, BYREF, LOCAL DIM, CALL |
 | Numeric Functions | [numeric-functions.md](./references/numeric-functions.md) | INT, ABS, math functions, CONVERT, operators |
-| Print & Input | [print-input.md](./references/print-input.md) | PRINT, PRINTUSING, LINPUT, KEYIN, screen I/O |
-| Screen I/O | [screen-io.md](./references/screen-io.md) | PRINT AT, KEYIN, BOX, WINDOW, menus, control codes, $PSTAT |
+| Print & Input | [print-input.md](./references/print-input.md) | PRINT, PRINTUSING, LINPUT, KEYIN, SELECT PRINT, $REWIND, PACK/UNPACK |
+| Screen I/O | [screen-io.md](./references/screen-io.md) | PRINT AT, KEYIN, BOX, WINDOW, menus, control codes, grid patterns |
+| Forms | [forms.md](./references/forms.md) | DEFFORM, DEFEVENT, all control types, combobox, grid, context menus, $DECLARE |
+| $DECLARE | [declare.md](./references/declare.md) | Windows DLL calls, parameter types, ShellExecute, clipboard, file I/O |
 | COM & Chaining | [com-chaining.md](./references/com-chaining.md) | COM variables, LOAD, program linking, DATA statements |
 | Global Partitions | [global-partitions.md](./references/global-partitions.md) | SELECT @PART, @LOCK/@UNLOCK, libraries, KI_ database routines, SYM() |
 | Field Variables | [field-variables.md](./references/field-variables.md) | DEFRECORD, FLD(), dot notation, packed numeric fields, record layouts |

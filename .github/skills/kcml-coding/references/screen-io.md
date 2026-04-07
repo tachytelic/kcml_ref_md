@@ -2,6 +2,73 @@
 
 Screen and terminal I/O in KCML — cursor positioning, input, menus, boxes, and control codes.
 
+---
+
+## DEFFORM / DEFEVENT — GUI Forms
+
+### CRITICAL: DEFEVENTs must be INSIDE the DEFFORM block
+
+Every `DEFEVENT` for a form **must be a continuation line inside that form's `DEFFORM...FORM END` block**. If a DEFEVENT is placed outside (e.g. as a separate numbered line), KCML does not associate it with the form. The form opens, has no event handlers, does nothing, and immediately closes — silently, with no error.
+
+This is especially critical for `Enter()` — it is the only place to load data and set control properties before the form is sent to the client. A form with no Enter() handler has no data and closes instantly.
+
+**WRONG — events as separate numbered lines (form will close immediately):**
+
+```kcml
+01011 + DEFFORM MyForm()={...}
+    : FORM END MyForm
+01012 + DEFEVENT MyForm.Enter()   : REM WRONG - outside the DEFFORM block
+    :   .lblTitle.Text$ = "Hello"
+    : END EVENT
+01013 result = MyForm.Open()      : REM form opens, does nothing, closes
+```
+
+**CORRECT — events as continuation lines inside the DEFFORM block:**
+
+```kcml
+01011 + DEFFORM MyForm()={...}
+    : + DEFEVENT MyForm.Enter()   : REM correct - inside, note the + prefix
+    :   .lblTitle.Text$ = "Hello"
+    : END EVENT
+    : FORM END MyForm
+01012 result = MyForm.Open()      : REM form opens, Enter() fires, form stays open
+```
+
+Note the `+ DEFEVENT` prefix (with `+`) — required when inside a DEFFORM block.
+
+### All DEFFORM blocks must appear before any .Open() call
+
+All `DEFFORM` blocks (with their events and `FORM END`) must appear **before** the first `.Open()` call in physical execution order. When one form opens another, both must be fully defined before either is opened:
+
+```kcml
+01010 + DEFFORM MainForm()={...}
+    : + DEFEVENT MainForm.btnDetail.Click()
+    :   result = DetailForm.Open()
+    : END EVENT
+    : FORM END MainForm
+01011 + DEFFORM DetailForm()={...}
+    : + DEFEVENT DetailForm.Enter()
+    :   REM populate detail
+    : END EVENT
+    : FORM END DetailForm
+01012 result = MainForm.Open()
+    : GOTO 9000
+```
+
+**`FORM END` is required syntax** — it closes the DEFFORM block. It does NOT open the form.
+
+### .Open() must assign a result variable
+
+Always assign the return value: `result = MyForm.Open()`. Calling `MyForm.Open()` as a bare statement (no assignment) causes a runtime error.
+
+### Diagnosing a form that closes immediately
+
+1. Check that all DEFEVENTs are continuation lines **inside** the DEFFORM block
+2. Use `TRAP` then step through — if execution skips from inside the DEFFORM directly to the exit, the events are outside the block
+3. Wrap file opens inside Enter() with `ERROR DO / sv_ok = 0 / END DO` and guard the read loop with `IF sv_ok == 1 THEN DO` — an unhandled file error inside Enter() also closes the form silently
+
+---
+
 ## PRINT AT — Cursor Positioning
 
 `PRINT AT(row, col)` positions the cursor before printing:
@@ -408,6 +475,111 @@ Programs define function key behaviour with numbered DEFFN routines. The number 
     : IF BOOL(DD_PRINT) THEN DO
     :   REM ... perform the print ...
     : END DO
+
+---
+
+## Grid Control (KCMLgrid$) — Verified Patterns and Pitfalls
+
+### CursorRow updates correctly for both left-click and right-click
+
+`CursorRow` is updated by both left and right mouse clicks. It can be read safely inside both `grid.LeftClick()` and `grid.RightClick()` event handlers:
+
+```kcml
++ DEFEVENT MyForm.grid.RightClick()
+    LOCAL DIM sv_row
+    sv_row = ..CursorRow    : REM correctly reflects the right-clicked row
+    IF sv_row > 1 THEN DO
+        REM ... process sv_row ...
+    END DO
+END EVENT
+```
+
+### CRITICAL: Do NOT store per-row data in grid cell Text$ using a loop variable
+
+Assigning a LOCAL string variable to `Cell(row,col).Text$` inside a loop does **not** copy the value — the grid stores a reference to the variable. After the loop ends, all cells point to the same variable, which holds its last assigned value. Every row will read back identical data.
+
+**WRONG — all rows end up with the same index (last value of sv_i_s$):**
+
+```kcml
+FOR sv_i = 1 TO sv_sp_next-1
+    ...
+    CONVERT sv_i TO sv_i_s$,(######)
+    .grid.Cell(sv_row,8).Text$ = LTRIM(sv_i_s$)    : REM all rows get last sv_i value
+NEXT sv_i
+```
+
+**WRONG — numeric assigned to Text$ converts to boolean (non-zero = "1"):**
+
+```kcml
+.grid.Cell(sv_row,8).Text$ = sv_i    : REM always stores "1" for any sv_i > 0
+```
+
+### CORRECT: Use a form-level array to map grid rows to record indices
+
+The reliable way to associate each grid row with a backing record index is a form-level numeric array:
+
+```kcml
+REM At program level:
+DIM grid_idx(500)
+
+REM During grid population:
+FOR sv_i = 1 TO sv_sp_next-1
+    DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
+    IF STR(sp_rec$,57,1)<>"6" THEN DO
+        sv_row++
+        .grid.Cell(sv_row,2).Text$ = RTRIM(STR(sp_rec$,17,30))
+        grid_idx(sv_row) = sv_i    : REM numeric assignment to array — always correct
+        REM ... other cell assignments ...
+    END DO
+NEXT sv_i
+
+REM In click/right-click handlers:
+sv_spool_idx = grid_idx(..CursorRow)
+DATA LOAD BU T#gb_h(213),(sv_spool_idx*128)sp_rec$
+```
+
+### Right-click context menus — capture row in RightClick, use it in Select()
+
+The `CursorRow` value at the time a context menu item's `Select()` event fires may differ from when `RightClick()` fired (focus changes can move the cursor). Store the row and derived data in form-level variables during `RightClick()`:
+
+```kcml
+REM Form-level:
+DIM sel_spool_idx, sel_rclick_row
+
++ DEFEVENT MyForm.grid.RightClick()
+    LOCAL DIM sv_row
+    sv_row = ..CursorRow
+    IF sv_row > 1 THEN DO
+        sel_rclick_row = sv_row
+        sel_spool_idx = grid_idx(sv_row)
+        .ctxMenu.TrackPopup(..MouseX+..Left,..MouseY+..Top)
+    END DO
+END EVENT
+
++ DEFEVENT MyForm.ctxMenu.mnuDoSomething.Select()
+    REM Use sel_rclick_row and sel_spool_idx — do NOT re-read CursorRow here
+    GOSUB 'do_something(sel_spool_idx)
+    .grid.Cell(sel_rclick_row,4).Text$ = "UPDATED"
+END EVENT
+```
+
+### DATA SAVE BU — updating both the DC buffer and disk
+
+`DATA LOAD DC OPEN` loads a file into an in-memory DC buffer. Subsequent `DATA LOAD BU` reads from that buffer. `DATA SAVE BU` behaviour depends on context:
+
+- **Without `$OPEN`**: writes to the DC buffer only. The in-process refresh (`DATA LOAD BU`) sees the new value. Other programs that do a fresh `DATA LOAD DC OPEN` will re-read from disk and see the old value.
+- **With `$OPEN` active**: writes to disk. The DC buffer is NOT updated. In-process `DATA LOAD BU` still sees the old (buffered) value.
+
+To update **both** the DC buffer (so your own refresh works) and disk (so other programs see it), do two saves:
+
+```kcml
+DATA LOAD BU T#gb_h(213),(idx*128)sp_rec$
+STR(sp_rec$,57,1) = new_stat$
+DATA SAVE BU T#gb_h(213),(idx*128)sp_rec$    : REM updates DC buffer
+$OPEN #gb_h(213)
+DATA SAVE BU T#gb_h(213),(idx*128)sp_rec$    : REM commits to disk
+$CLOSE #gb_h(213)
+```
     : Q8 = 1    : REM Restore Q8 so caller knows F1 was pressed
     : RETURN
 

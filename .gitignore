@@ -1,2 +1,9 @@
 # Real KCML business application source files - not for public distribution
 kcml_source/
+
+# Raw KCML vendor documentation and tooling - not for public distribution
+kcmlrefman/
+kcmlforms/
+kdb/
+kwebserv/
+workbench/

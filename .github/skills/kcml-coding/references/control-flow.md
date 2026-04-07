@@ -167,6 +167,10 @@ DIM i
 ```
 Output: 1, 2, 4, 5, 6
 
+Works with `FOR...NEXT`, `WHILE...WEND`, and `REPEAT...UNTIL`. 
+
+**Constraint:** BREAK must physically appear inside the loop body — it cannot be inside a subroutine called from within the loop. The BREAK/loop pairing is checked at compile time.
+
 ## GOSUB / RETURN
 
 Call subroutines by line number:

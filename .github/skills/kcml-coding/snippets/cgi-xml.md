@@ -168,6 +168,40 @@ The `q$` approach is easier to read when quotes are dense; `""` is fine for occa
 
 Live example: `kcml_executor/order_lookup_json.kcml` deployed at `/var/www/order_lookup_json.kcml`
 
+### Alternative: placeholder substitution for complex JSON
+
+For larger JSON structures with many fields, a placeholder approach keeps the template readable.
+Build the entire output using `^` as a quote placeholder, then swap all `^` for `"` in one pass
+using a DEFSUB. There is no built-in string replace in KCML, but a 1:1 character swap is trivial:
+
+```kcml
+DEFSUB 'json_quote(buf$, buf_len)
+: LOCAL DIM rp_i
+: FOR rp_i = 1 TO buf_len
+:     IF STR(buf$,rp_i,1) == "^" THEN STR(buf$,rp_i,1) = HEX(22)
+: NEXT rp_i
+: END SUB
+```
+
+Build the JSON into a buffer, call the sub once, then print:
+
+```kcml
+DIM json$2000
+: PRINT TO json$; "{"
+: PRINT TO json$; "  ^order_number^: ^"; RTRIM(STR(rec$,18,6)); "^,"
+: PRINT TO json$; "  ^customer_name^: ^"; RTRIM(STR(rec$,24,30)); "^,"
+: PRINT TO json$; "  ^last_field^: ^"; RTRIM(STR(rec$,557,4)); "^"
+: PRINT TO json$; "}"
+: GOSUB 'json_quote(json$, VAL(STR(json$,,2),2))
+: PRINT "Content-type: application/json"
+: PRINT
+: PRINT STR(json$,3,VAL(STR(json$,,2),2))
+: $END
+```
+
+The `^` placeholder is safe for ERP field data — it does not appear in order numbers, names, or
+codes. If needed, any other rarely-used character (`~`, `|`) works equally well.
+
 ---
 
 ## Deploying Without CRLF Issues

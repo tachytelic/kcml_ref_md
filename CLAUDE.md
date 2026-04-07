@@ -91,12 +91,16 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 - `ALL(HEX(xx))` fills a string with a repeated byte: `ALL(HEX(00))` = null-filled string
 - `ZER` resets an array to all zeros: `arr() = ZER`
 - `MAT REDIM arr(n)` resizes an array at runtime
+- **DEFFORM: DEFEVENTs must be continuation lines INSIDE the DEFFORM block** — a DEFEVENT placed outside (as a separate numbered line) is not associated with the form; the form opens, does nothing, and closes silently. Use `+ DEFEVENT` with the `+` prefix inside the block. All DEFFORM blocks must be fully defined before any `.Open()` call.
+- **DEFFORM: `.Open()` must assign a result** — `result = MyForm.Open()` not bare `MyForm.Open()`
 
 ---
 
 ## Source Code Reference
 
-`kcml_source/PF/` contains real KCML business programs. Files with `.Bre` extension are source; files without extension are compiled. Reading these reveals real-world patterns that may not appear in the reference manual.
+`kcml_source/PF/` contains real KCML business programs. Both the extensionless files and the `.Bre` files are source — they are not compiled/source pairs.
+
+The `.Bre` extension relates to the `$SPECIAL` environment variable mechanism: when `$SPECIAL=Bre` is set for a customer, the KCML runtime loads `PROGRAM.Bre` instead of `PROGRAM` (the base version). This is how the ERP supports per-customer modifications — the `.Bre` file overrides the base program for that customer without touching the standard code. Reading both reveals real-world patterns that may not appear in the reference manual.
 
 Key files studied:
 - `MENU.Bre` — menu structure, LOAD, DATA statements, DEFFN, MAT REDIM

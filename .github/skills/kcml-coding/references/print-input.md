@@ -337,12 +337,117 @@ REM Read from command output
 : SELECT INPUT /001     : REM Back to keyboard
 ```
 
-### SELECT PRINT - Redirect Output
+### SELECT PRINT — Redirect Output to Printer
+
+`SELECT PRINT <device>(filepos)` redirects all subsequent `PRINT` statements to a printer device.
+The device is a 3-character code (e.g. `"004"` = PC Local/Windows). `(0)` means start from the
+beginning of the print job.
 
 ```kcml
-SELECT PRINT device$    : REM Redirect print output
-: SELECT PRINT /001     : REM Back to terminal
+SELECT PRINT <u$(3)>(0)    : REM redirect PRINT to the currently selected printer
+: REM ... PRINT statements send to printer ...
+$REWIND <u$(3)>            : REM close/eject the print job
 ```
+
+`$REWIND <device>` signals end-of-job to the printer — it flushes buffers and ejects the page.
+Without `$REWIND`, the job may remain open in the print queue indefinitely.
+
+### Printing a spool file (buffered, same pattern as original MANAG)
+
+```kcml
+DEFSUB 'sv_print_spool_file()
+: LOCAL DIM sv_printbuf$1000,sv_filepos,sv_nextpos,sv_lppos,sv_endpos,sv_q9,sv_eof
+: DATA LOAD DC OPEN T#gb_h(212),sel_file$
+: ERROR DO
+:     REM cannot open file
+: END DO
+: ELSE DO
+:     SELECT PRINT <sv_sel_printer$>(0)
+:     sv_filepos = 0
+:     sv_eof = 0
+:     REPEAT
+:         DATA LOAD BU T#gb_h(212),(sv_filepos,sv_nextpos)sv_printbuf$
+:         IF sv_filepos == sv_nextpos THEN sv_eof = 1
+:         IF sv_eof == 0 THEN DO
+:             sv_lppos = 1
+:             sv_endpos = sv_nextpos - sv_filepos
+:             REPEAT
+:                 sv_q9 = POS(STR(sv_printbuf$,sv_lppos,sv_endpos) == HEX(0A))
+:                 IF sv_q9 > 0 THEN DO
+:                     IF sv_q9 == 1 THEN PRINT
+:                     ELSE PRINT STR(sv_printbuf$,sv_lppos,sv_q9-1)
+:                     sv_endpos -= sv_q9
+:                     sv_lppos += sv_q9
+:                 END DO
+:             UNTIL sv_q9 == 0 OR sv_endpos <= 0
+:             IF sv_endpos > 0 THEN PRINT STR(sv_printbuf$,sv_lppos,sv_endpos);
+:             sv_filepos = sv_nextpos
+:         END DO
+:     UNTIL sv_eof == 1
+:     $REWIND <sv_sel_printer$>
+:     DATA SAVE DC CLOSE #gb_h(212)
+: END DO
+: END SUB
+```
+
+Key points:
+- `DATA LOAD BU T#handle,(filepos,nextpos)buf$` reads up to 1000 bytes; `nextpos` is updated to new position
+- `filepos == nextpos` signals EOF
+- The inner REPEAT scans each chunk for `HEX(0A)` (LF) line endings using `POS()`
+- The trailing `PRINT ...;` (with semicolon) handles a partial last line with no trailing newline
+- `DATA SAVE DC CLOSE` releases the DC stream after printing
+
+### Printer device codes (ERP global arrays)
+
+The ERP maintains `printer_addr$(n)` (3-char code) and `printer_name$(n)` (display name) arrays
+loaded at startup. The currently selected printer is in `u$(3)`:
+
+```kcml
+REM Populate a combobox from the printer list
+FOR sv_pi = 1 TO 100
+    sv_ac$ = printer_addr$(sv_pi)
+    IF sv_ac$ <> " " THEN DO
+        .cboPrinter.Add(RTRIM(printer_name$(sv_pi)), sv_ac$)
+    END DO
+NEXT sv_pi
+```
+
+Restore terminal output:
+```kcml
+SELECT PRINT /005    : REM /005 = screen/terminal
+: REM or
+SELECT PRINT /001    : REM back to terminal stream 1
+```
+
+---
+
+## PACK / UNPACK — Numeric to Binary Field Conversion
+
+`PACK` and `UNPACK` convert between numeric values and fixed-width binary-coded decimal fields
+in record strings. Used for time/counter fields in binary record structures.
+
+```kcml
+PACK(######) STR(rec$,70,3) FROM numeric_value
+: REM packs numeric_value into 3 bytes of rec$ at position 70 using picture (######)
+```
+
+```kcml
+UNPACK(######) numeric_var FROM STR(rec$,70,3)
+: REM extracts value from 3 bytes of rec$ into numeric_var
+```
+
+The picture format matches `CONVERT` picture formats — `(######)` = 6-digit integer.
+`PACK` / `UNPACK` are the binary counterparts of `CONVERT`.
+
+### Example: storing time in a SPOOLMAST record
+
+```kcml
+LOCAL DIM p_time
+CONVERT STR(TIME,,6) TO p_time           : REM get current time as number
+PACK(######) STR(sp_rec$,70,3) FROM p_time  : REM store as 3 packed bytes
+```
+
+---
 
 ## Complete Example: Menu System
 

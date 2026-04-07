@@ -84,20 +84,119 @@ DIM a$20
 
 ## Find: POS()
 
-Find position of substring. Returns 0 if not found.
+Find position of the **first matching character**. Returns 0 if not found.
 
 ```kcml
 POS(haystack$ = needle$)
 ```
 
+**CRITICAL: POS only matches a single character.** If `needle$` is more than one character, only the first character is used. POS is NOT a substring search.
+
 ```kcml
-DIM text$50, pos
-: text$ = "The quick brown fox"
-: pos = POS(text$ = "quick")
-: PRINT "Found at: "; pos    : REM 5
-: pos = POS(text$ = "slow")
-: PRINT "Not found: "; pos   : REM 0
+DIM text$26
+: text$ = "abcdefghijklmnopqrstuvwxyz"
+: PRINT POS(text$ = "o")    : REM 15  (finds 'o', ignores rest of needle)
+: PRINT POS(text$ = "oxyz") : REM 15  (same result - only 'o' is used)
 : $END
+```
+
+Search from the end using `-`:
+```kcml
+: PRINT POS(-text$ = "o")   : REM 15  (last 'o' — same here, only one 'o')
+```
+
+### Substring search — use MAT SEARCH
+
+POS cannot do substring matching. Use `MAT SEARCH` instead.
+
+---
+
+## Substring Search: MAT SEARCH
+
+Scans an alpha variable for substrings matching a relational operator. Returns byte position of first match into a numeric variable, or 0 if not found.
+
+```kcml
+MAT SEARCH search_var, operator search_string TO result [STEP step]
+```
+
+- `search_var` — plain alpha variable to search (no function calls — must be a variable)
+- `operator` — `==`, `<>`, `<`, `<=`, `>`, `>=`
+- `search_string` — use `STR(needle$,,len)` to fix exact length and avoid trailing-space mismatches
+- `result` — numeric variable (position) or numeric array (all positions)
+- `STEP` — optional: bytes to skip between comparisons (default 1); use for fixed-width field arrays
+
+### Basic contains-check (verified working)
+
+```kcml
+DIM desc$30, needle$30, found, nl
+: desc$ = "Trial print Invoice"
+: needle$ = "print"
+: nl = LEN(RTRIM(needle$))
+: MAT SEARCH desc$, == STR(needle$,,nl) TO found
+: PRINT found              : REM 7 — position of "print", or 0 if not found
+: $END
+```
+
+### Case-insensitive search
+
+`MAT SEARCH` is case-sensitive. Lower both strings before searching:
+
+```kcml
+DIM desc$30, needle$30, found, nl
+: desc$ = STR(sp_rec$, 17, 30)
+: desc$ = $LOWER(desc$)
+: needle$ = $LOWER(user_input$)
+: nl = LEN(RTRIM(needle$))
+: MAT SEARCH desc$, == STR(needle$,,nl) TO found
+: IF found == 0 THEN row_match = 0
+: $END
+```
+
+### Find all occurrences (array result)
+
+When `result` is a numeric array, MAT SEARCH fills it with all match positions; the last entry is 0:
+
+```kcml
+DIM text$100, hits(20), nl, needle$10
+: text$ = "one cat and one dog and one fish"
+: needle$ = "one"
+: nl = LEN(RTRIM(needle$))
+: MAT SEARCH text$, == STR(needle$,,nl) TO hits()
+: FOR i = 1 TO 20
+:   IF hits(i) == 0 THEN BREAK
+:   PRINT "Found at: "; hits(i)
+: NEXT i
+: $END
+```
+
+### Searching fixed-width field arrays (STEP)
+
+When records are packed into a single string at fixed offsets, STEP skips to the next field:
+
+```kcml
+REM Search 5 x 6-byte name fields packed into names$
+DIM names$30, target$6, ptr$2
+: names$ = "steve fred  alan  john  bill  "
+: target$ = "alan"
+: MAT SEARCH names$, == STR(target$,,6) TO ptr$ STEP 6
+: PRINT VAL(ptr$, 2)       : REM 13 (byte position), or use ELEMENT for array index
+: $END
+```
+
+### Key rules
+
+- `search_var` must be a plain variable — assign `STR()` or `$LOWER()` results to a variable first, then pass that variable
+- Always use `STR(needle$,,len)` not bare `needle$` — bare variable includes trailing spaces and will fail to match
+- `LEN(RTRIM(needle$))` gives the correct length for fixed-length string variables
+
+### WARNING: Never use STR() on the left side of POS()
+
+`POS(STR(rec$, 17, 30) = "X")` looks like a character search but is actually **silent data corruption**. KCML parses `STR(rec$, 17, 30) = "X"` as a substring *assignment* (writing "X" into rec$ at position 17). Always assign to a local variable first:
+
+```kcml
+DIM desc$30
+: desc$ = STR(rec$, 17, 30)
+: IF POS(desc$ = ".") == 0 THEN ...   : REM safe
 ```
 
 ## Case Conversion
@@ -151,9 +250,49 @@ DIM esc$1, crlf$2
 : $END
 ```
 
+## Numeric to String: CONVERT
+
+**`&` is type-strict** — concatenating a numeric with `&` causes a compile-time syntax error. Convert numeric to string first using `CONVERT`:
+
+```kcml
+CONVERT numeric_expr TO string$,(picture)
+```
+
+The `picture` format uses `#` for digit positions:
+
+```kcml
+DIM count, label$40, num_s$10
+: count = 42
+: CONVERT count TO num_s$,(####)    : REM " 42" (right-aligned, leading spaces)
+: label$ = "Count " & LTRIM(num_s$) : REM "Count 42"
+: $END
+```
+
+Common picture formats:
+- `(##)` — 0 to 99
+- `(####)` — 0 to 9999
+- `(######)` — large integers
+- `(###.##)` — decimal with 2 places
+- `($###,###.##-)` — currency with sign
+
+**Always use `LTRIM()` after CONVERT** — the picture pads with leading spaces to fill digit positions.
+
+### CONVERT alpha to numeric
+
+```kcml
+DIM total, amount$10
+: amount$ = "159.90"
+: CONVERT amount$ TO total    : REM total = 159.9
+: $END
+```
+
+Generates a recoverable error if the string is not a valid number.
+
+---
+
 ## Concatenation
 
-Use `&` to join strings:
+Use `&` to join strings (both operands must be strings — see CONVERT above for numeric):
 
 ```kcml
 DIM a$10, b$10, c$25
@@ -166,7 +305,18 @@ DIM a$10, b$10, c$25
 
 ## Trimming
 
-KCML strings are fixed-length and padded with spaces. To work with trimmed strings:
+KCML strings are fixed-length and padded with spaces. Use the built-in trim functions:
+
+```kcml
+DIM a$20
+: a$ = "  Hello  "
+: PRINT RTRIM(a$)        : REM "  Hello"  (removes trailing spaces)
+: PRINT LTRIM(a$)        : REM "Hello  "  (removes leading spaces)
+: PRINT LTRIM(RTRIM(a$)) : REM "Hello"    (both ends)
+: $END
+```
+
+Manual trimming when the built-ins are unavailable:
 
 ```kcml
 DIM a$20, trimmed$20, i
