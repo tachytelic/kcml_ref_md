@@ -98,10 +98,11 @@ END SELECT
 
 ```kcml
 REM String functions
-LEN(string$)              : REM Length
-STR$(number)              : REM Number to string
-VAL(string$)              : REM String to number
-STR(s$, start, len)       : REM Substring (1-based)
+LEN(string$)              : REM Length (excludes trailing spaces)
+STR(number, (picture))    : REM Number to formatted string
+CONVERT str$ TO num       : REM ASCII string to numeric (use this, NOT VAL)
+VAL(str$, n)              : REM Reads n bytes of str$ as binary integer (NOT ASCII parse)
+STR(s$, start, len)       : REM Substring extraction (1-based)
 POS(haystack$ = needle$)  : REM Find position (0 if not found)
 $UPPER(string$)           : REM Uppercase
 $LOWER(string$)           : REM Lowercase
@@ -299,6 +300,126 @@ DIM julian, iso$12
 
 See [date-functions.md](./references/date-functions.md) for R7_DATE2J, R7_J2DATE, and Excel date conversion.
 
+## KISAM / KDB Database Access
+
+KISAM (also called KDB) is the built-in KCML database. This is a primary area of work — full reference in [`kdb_md/`](../../../kdb_md/README.md).
+
+### Key Rules
+
+- Connection 1 is auto-created as KISAM on script start — no `KI_ALLOC_CONNECT` needed
+- `KI_ALLOC_HANDLE 0, 1` = auto-allocate handle on KISAM connection 1
+- `ki_dataptr$` must be exactly 6 bytes
+- Pre-assign `ki_sym = SYM(rec$)` before any read loop — do NOT pass `SYM()` inline to `KI_READ_NEXT`
+- Status 0 = success, 2 = EOF (normal), non-zero = error
+- **Always `KI_CLOSE` before `KI_FREE_HANDLE`**
+- **Never use 4-param `KI_OPEN`** — causes S24 panic in KCML 6.x. Use 3-param form only
+
+### Read all rows from a KISAM file (sequential scan)
+
+```kcml
+: DIM ki_status, handle, ki_sym, ki_dataptr$6, ki_key$64, rec$1024, count
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: CALL KI_OPEN handle, "/full/path/to/FILENAME", "R" TO ki_status
+: IF ki_status <> 0 THEN PRINT "Open failed: "; ki_status
+: IF ki_status <> 0 THEN $END
+: CALL KI_START_BEG handle, 1 TO ki_status
+: ki_sym = SYM(rec$)
+: count = 0
+: REPEAT
+:   CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+:   IF ki_status == 0 THEN DO
+:     count++
+:     PRINT "Key: ["; STR(ki_key$, 1, 20); "]"
+:     PRINT "Field: ["; STR(rec$, 20, 15); "]"
+:   END DO
+: UNTIL ki_status <> 0
+: CALL KI_CLOSE handle TO ki_status
+: CALL KI_FREE_HANDLE handle TO ki_status
+```
+
+### Positioned scan (KI_START — read from a key prefix)
+
+```kcml
+: DIM prefix$10
+: prefix$ = "AB"
+: CALL KI_START handle, prefix$, 1 TO ki_status
+: REPEAT
+:   CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+:   IF ki_status <> 0 THEN BREAK
+:   IF STR(ki_key$, 1, 2) <> "AB" THEN BREAK
+:   PRINT STR(ki_key$, 1, 20)
+: UNTIL FALSE
+```
+
+### Execute SQL and fetch results
+
+```kcml
+: DIM ki_status, handle, ki_sym, colcount, rowcount, reclen, sql$256, rowbuf$512
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: sql$ = "SELECT color, quantity FROM SL00test ORDER BY color"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: MAT REDIM rowbuf$reclen
+: ki_sym = SYM(rowbuf$)
+: REPEAT
+:   CALL KI_FETCH handle, ki_sym TO ki_status
+:   REM process rowbuf$ here
+: UNTIL ki_status <> 0
+: CALL KI_CLOSE handle TO ki_status
+: CALL KI_FREE_HANDLE handle TO ki_status
+```
+
+### Execute non-SELECT SQL (INSERT / UPDATE / DELETE)
+
+```kcml
+: sql$ = "UPDATE SL00test SET quantity = 0 WHERE color = 'red'"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+```
+
+### Reading field types from legacy KISAM records
+
+**Character fields** — use `STR(rec$, start, length)`:
+```kcml
+: part$ = STR(rec$, 20, 15)
+: desc$ = STR(rec$, 36, 30)
+```
+
+**IBM Packed Decimal (type K / type I in DD files)** — use `UNPACK`:
+```kcml
+: REM 8-byte field with 6 decimal places (15 total digits = 9 integer + 6 decimal)
+: DIM packed$8, qty
+: UNPACK (#########.######) STR(rec$, 513, 8) TO qty
+```
+
+**Packed BCD date (type L, 4 bytes, CCYYMMDD)** — decode with HEXUNPACK:
+```kcml
+: DIM hex$12, date$10
+: HEXUNPACK STR(rec$, offset, 4) TO hex$
+: date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+```
+
+**Binary integer (type B)** — use `VAL(str$, n)`:
+```kcml
+: qty = VAL(STR(rec$, offset, 2), 2)   : REM 2-byte unsigned integer
+```
+
+**Note:** `KI_BIND_COL` by column name only works on type 7 KDB tables (created with `CREATE TABLE`). On legacy type 6 KISAM files it returns status 18 — use `STR()` with byte offsets instead.
+
+### Full KDB Reference
+
+See [`kdb_md/`](../../../kdb_md/README.md) for complete coverage:
+- Handles and connections (`03-handles-connections.md`)
+- Open/close/create (`04-open-close-create.md`)
+- Sequential and direct access (`05-rowset-access.md`)
+- SQL API — KI_PREPARE, KI_EXECUTE, KI_FETCH (`06-sql-api.md`)
+- DDL and DML (`07-ddl.md`, `08-dml.md`)
+- Transactions and journaling (`10-transactions.md`, `11-journaling.md`)
+- Working demo: [`demo-db-operations.kcml`](../../../kdb_md/demo-db-operations.kcml)
+
+---
+
 ## Error Handling
 
 KCML errors include line number and error description. Common errors:
@@ -331,6 +452,7 @@ For in-depth coverage of specific topics, see the reference files:
 | COM & Chaining | [com-chaining.md](./references/com-chaining.md) | COM variables, LOAD, program linking, DATA statements |
 | Global Partitions | [global-partitions.md](./references/global-partitions.md) | SELECT @PART, @LOCK/@UNLOCK, libraries, KI_ database routines, SYM() |
 | Field Variables | [field-variables.md](./references/field-variables.md) | DEFRECORD, FLD(), dot notation, packed numeric fields, record layouts |
+| **KDB / KISAM (full)** | [kdb_md/README.md](../../../kdb_md/README.md) | Complete KDB reference — handles, rowsets, SQL API, DDL/DML, transactions, field types, demo |
 
 ## Real-World Patterns (from Source Code)
 
@@ -633,7 +755,7 @@ END SELECT
 
 ## Source Documentation
 
-Full KCML documentation is in the `kcmlrefman_md/` folder (393 files). Key files:
+Full KCML documentation is in the `kcmlrefman_md/` folder (393 files). KDB/KISAM database documentation is in `kdb_md/` (15 files, tested). Key files:
 
 - **DIM.md**, **COM.md** - Variable declarations
 - **FOR.md**, **WHILE.md**, **DO.md**, **REPEAT.md** - Loop constructs

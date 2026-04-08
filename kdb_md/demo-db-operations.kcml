@@ -1,0 +1,292 @@
+: REM ================================================================
+: REM  demo-db-operations.kcml
+: REM  Demonstrates common KDB database operations in KCML
+: REM
+: REM  Uses the default KISAM connection (conn 1) auto-created on start.
+: REM
+: REM  Table used: DEMO_TEST with columns:
+: REM    pid      INTEGER(4)   - primary key
+: REM    color    VARCHAR(10)
+: REM    quantity NUMERIC(8)
+: REM
+: REM  NOTE - blank lines MUST NOT appear in kcml -p scripts.
+: REM  Use ": REM" lines for spacing instead.
+: REM
+: REM  The DDL sections (CREATE/DROP TABLE) require a KDB database
+: REM  with a tablespace called 'tmp'. The rowset access sections
+: REM  work against any existing KISAM file.
+: REM ================================================================
+: DIM handle, ki_status, colcount, rowcount, reclen
+: DIM sql$512, rowbuf$512
+: DIM pid, color$10, qty, ki_sym, ki_dataptr$6, ki_key$64, rec$1024
+: DIM ok, count
+: PRINT "=== KDB Database Operations Demo ==="
+: REM ================================================================
+: REM  SECTION 1: ALLOCATE A HANDLE
+: REM  KI_ALLOC_HANDLE 0 = auto-allocate from lowest free slot.
+: REM  Connection 1 is the auto-KISAM connection.
+: REM ================================================================
+: PRINT "--- 1. Allocate handle ---"
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: IF ki_status <> 0 THEN PRINT "KI_ALLOC_HANDLE failed: "; ki_status
+: IF ki_status <> 0 THEN $END
+: PRINT "Handle allocated: "; handle
+: REM ================================================================
+: REM  SECTION 2: CREATE TABLE (DDL)
+: REM  Requires a KDB database connection with a 'tmp' tablespace.
+: REM ================================================================
+: PRINT "--- 2. Create table ---"
+: sql$ = "CREATE TABLE DEMO_TEST (pid INTEGER(4), color VARCHAR(10), quantity NUMERIC(8)) TYPE 7, TABLESPACE tmp"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Table DEMO_TEST created"
+: IF ki_status <> 0 THEN PRINT "Create table failed (may already exist): "; ki_status
+: REM ================================================================
+: REM  SECTION 3: CREATE INDEX (DDL)
+: REM ================================================================
+: PRINT "--- 3. Create index ---"
+: sql$ = "CREATE UNIQUE INDEX DEMO_TEST_A1 ON DEMO_TEST (pid)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Index DEMO_TEST_A1 created"
+: IF ki_status <> 0 THEN PRINT "Create index failed: "; ki_status
+: sql$ = "CREATE UNIQUE INDEX DEMO_TEST_A2 ON DEMO_TEST (color, pid)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Index DEMO_TEST_A2 created"
+: REM ================================================================
+: REM  SECTION 4: INSERT ROWS (DML)
+: REM ================================================================
+: PRINT "--- 4. Insert rows ---"
+: sql$ = "INSERT INTO DEMO_TEST (pid, color, quantity) VALUES (1, 'red', 10)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Insert row 1 status="; ki_status
+: sql$ = "INSERT INTO DEMO_TEST (pid, color, quantity) VALUES (2, 'green', 25)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Insert row 2 status="; ki_status
+: sql$ = "INSERT INTO DEMO_TEST (pid, color, quantity) VALUES (3, 'blue', 5)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Insert row 3 status="; ki_status
+: sql$ = "INSERT INTO DEMO_TEST (pid, color, quantity) VALUES (4, 'red', 99)"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Insert row 4 status="; ki_status
+: REM ================================================================
+: REM  SECTION 5: SELECT ALL ROWS
+: REM ================================================================
+: PRINT "--- 5. SELECT all rows ---"
+: sql$ = "SELECT pid, color, quantity FROM DEMO_TEST ORDER BY pid"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status <> 0 THEN PRINT "Prepare failed: "; ki_status
+: IF ki_status <> 0 THEN $END
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: IF ki_status <> 0 THEN DO
+:   PRINT "Execute failed: "; ki_status
+:   CALL KI_CLOSE handle TO ki_status
+:   $END
+: END DO
+: CALL KI_BIND_COL handle, 1, SYM(pid) TO ki_status
+: CALL KI_BIND_COL handle, 2, SYM(color$) TO ki_status
+: CALL KI_BIND_COL handle, 3, SYM(qty) TO ki_status
+: MAT REDIM rowbuf$reclen
+: PRINT "pid  color      qty"
+: REPEAT
+:   CALL KI_FETCH handle, SYM(rowbuf$) TO ki_status
+:   IF ki_status == 0 THEN PRINT pid; "  "; color$; "  "; qty
+: UNTIL ki_status <> 0
+: CALL KI_CLOSE handle TO ki_status
+: REM ================================================================
+: REM  SECTION 6: SELECT WITH WHERE CLAUSE
+: REM ================================================================
+: PRINT "--- 6. SELECT WHERE color='red' ---"
+: sql$ = "SELECT pid, color, quantity FROM DEMO_TEST WHERE color='red' ORDER BY pid"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: IF ki_status == 0 THEN DO
+:   CALL KI_BIND_COL handle, 1, SYM(pid) TO ki_status
+:   CALL KI_BIND_COL handle, 3, SYM(qty) TO ki_status
+:   MAT REDIM rowbuf$reclen
+:   REPEAT
+:     CALL KI_FETCH handle, SYM(rowbuf$) TO ki_status
+:     IF ki_status == 0 THEN PRINT "  pid="; pid; " qty="; qty
+:   UNTIL ki_status <> 0
+: END DO
+: CALL KI_CLOSE handle TO ki_status
+: REM ================================================================
+: REM  SECTION 7: SELECT WITH AGGREGATE (GROUP BY)
+: REM ================================================================
+: PRINT "--- 7. SELECT GROUP BY color ---"
+: sql$ = "SELECT color, COUNT(*), SUM(quantity) FROM DEMO_TEST GROUP BY color ORDER BY color"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: IF ki_status == 0 THEN DO
+:   DIM cnt, total
+:   CALL KI_BIND_COL handle, 1, SYM(color$) TO ki_status
+:   CALL KI_BIND_COL handle, 2, SYM(cnt) TO ki_status
+:   CALL KI_BIND_COL handle, 3, SYM(total) TO ki_status
+:   MAT REDIM rowbuf$reclen
+:   REPEAT
+:     CALL KI_FETCH handle, SYM(rowbuf$) TO ki_status
+:     IF ki_status == 0 THEN PRINT color$; " count="; cnt; " sum="; total
+:   UNTIL ki_status <> 0
+: END DO
+: CALL KI_CLOSE handle TO ki_status
+: REM ================================================================
+: REM  SECTION 8: UPDATE
+: REM ================================================================
+: PRINT "--- 8. UPDATE ---"
+: sql$ = "UPDATE DEMO_TEST SET quantity = quantity + 100 WHERE color = 'blue'"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Updated "; rowcount; " blue row(s)"
+: REM ================================================================
+: REM  SECTION 9: DELETE
+: REM ================================================================
+: PRINT "--- 9. DELETE ---"
+: sql$ = "DELETE FROM DEMO_TEST WHERE pid = 4"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: PRINT "Deleted "; rowcount; " row(s) with pid=4"
+: REM ================================================================
+: REM  SECTION 10: ROWSET ACCESS - KI_START_BEG + KI_READ_NEXT
+: REM  Verified working against S_STOK01 (type 6 legacy KISAM file).
+: REM  Replace the path below with a real KISAM file on your system.
+: REM  Note: KI_BIND_COL by column name does NOT work on type 6 files.
+: REM  Use STR(rec$, start, length) to extract fields by byte offset.
+: REM ================================================================
+: PRINT "--- 10. Rowset access (KI_START_BEG + KI_READ_NEXT) ---"
+: DIM handle2, ki_sym2, ki_dataptr2$6, ki_key2$64, rec2$1024, count2
+: DIM part_no$15, description$30, saved_rowid$6
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle2, ki_status
+: IF ki_status <> 0 THEN $END
+: DIM tablepath$100
+: tablepath$ = "/home/paul/Documents/kisam/S_STOK01"
+: CALL KI_OPEN handle2, tablepath$, "R" TO ki_status
+: IF ki_status <> 0 THEN DO
+:   PRINT "KI_OPEN failed: "; ki_status
+:   CALL KI_FREE_HANDLE handle2 TO ki_status
+: END DO
+: IF ki_status == 0 THEN DO
+:   CALL KI_START_BEG handle2, 1 TO ki_status
+:   ki_sym2 = SYM(rec2$)
+:   count2 = 0
+:   PRINT "Sequential read (first 5 rows):"
+:   REPEAT
+:     CALL KI_READ_NEXT handle2, 1, ki_sym2 TO ki_status, ki_dataptr2$, ki_key2$
+:     IF ki_status == 0 THEN DO
+:       count2++
+:       part_no$ = STR(rec2$, 20, 15)
+:       description$ = STR(rec2$, 36, 30)
+:       IF count2 == 1 THEN saved_rowid$ = ki_dataptr2$
+:       PRINT count2; ": ["; part_no$; "] "; STR(description$, 1, 25)
+:     END DO
+:   UNTIL ki_status <> 0 OR count2 >= 5
+:   PRINT "--- 11. Positioned scan from key 02/ ---"
+:   CALL KI_START handle2, "02/", 1 TO ki_status
+:   count2 = 0
+:   REPEAT
+:     CALL KI_READ_NEXT handle2, 1, ki_sym2 TO ki_status, ki_dataptr2$, ki_key2$
+:     IF ki_status == 0 THEN DO
+:       part_no$ = STR(rec2$, 20, 15)
+:       IF STR(part_no$, 1, 3) <> "02/" THEN ki_status = 99
+:       IF ki_status == 0 THEN DO
+:         count2++
+:         description$ = STR(rec2$, 36, 30)
+:         PRINT count2; ": ["; part_no$; "] "; STR(description$, 1, 20)
+:       END DO
+:     END DO
+:   UNTIL ki_status <> 0 OR count2 >= 5
+:   PRINT count2; " rows with prefix 02/"
+:   PRINT "--- 12. Direct read by ROWID (row 1 from scan) ---"
+:   CALL KI_READ_PTR handle2, saved_rowid$, ki_sym2 TO ki_status
+:   IF ki_status == 0 THEN DO
+:     part_no$ = STR(rec2$, 20, 15)
+:     description$ = STR(rec2$, 36, 30)
+:     PRINT "ROWID read OK: ["; part_no$; "] "; STR(description$, 1, 25)
+:   END DO
+:   IF ki_status <> 0 THEN PRINT "KI_READ_PTR failed: "; ki_status
+:   CALL KI_CLOSE handle2 TO ki_status
+: END DO
+: CALL KI_FREE_HANDLE handle2 TO ki_status
+: REM ================================================================
+: REM  SECTION 13: LIST TABLES (KI_TABLES)
+: REM ================================================================
+: PRINT "--- 13. List available tables (KI_TABLES) ---"
+: DIM tblrow$100
+: CALL KI_TABLES handle TO ki_status
+: IF ki_status == 0 THEN DO
+:   REPEAT
+:     CALL KI_FETCH handle, SYM(tblrow$) TO ki_status
+:     IF ki_status == 0 THEN PRINT "  Table: "; tblrow$
+:   UNTIL ki_status <> 0
+:   CALL KI_CLOSE handle TO ki_status
+: END DO
+: IF ki_status <> 0 THEN PRINT "  (KI_TABLES not available on default connection)"
+: REM ================================================================
+: REM  SECTION 14: SQL FUNCTIONS
+: REM ================================================================
+: PRINT "--- 14. SQL functions (UCASE, LENGTH, RTRIM) ---"
+: sql$ = "SELECT pid, UCASE(color), LENGTH(RTRIM(color)) FROM DEMO_TEST ORDER BY pid"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: IF ki_status == 0 THEN DO
+:   DIM upper_color$10, clen
+:   CALL KI_BIND_COL handle, 1, SYM(pid) TO ki_status
+:   CALL KI_BIND_COL handle, 2, SYM(upper_color$) TO ki_status
+:   CALL KI_BIND_COL handle, 3, SYM(clen) TO ki_status
+:   MAT REDIM rowbuf$reclen
+:   REPEAT
+:     CALL KI_FETCH handle, SYM(rowbuf$) TO ki_status
+:     IF ki_status == 0 THEN PRINT "  pid="; pid; " upper="; upper_color$; " len="; clen
+:   UNTIL ki_status <> 0
+: END DO
+: CALL KI_CLOSE handle TO ki_status
+: REM ================================================================
+: REM  SECTION 15: ALTER TABLE
+: REM ================================================================
+: PRINT "--- 15. ALTER TABLE (add column) ---"
+: sql$ = "ALTER TABLE DEMO_TEST ADD (notes VARCHAR(30))"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Column 'notes' added"
+: IF ki_status <> 0 THEN PRINT "ALTER TABLE failed: "; ki_status
+: REM ================================================================
+: REM  SECTION 16: DROP INDEX AND TABLE (cleanup)
+: REM ================================================================
+: PRINT "--- 16. DROP INDEX and TABLE ---"
+: sql$ = "DROP INDEX DEMO_TEST_A2"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Index DEMO_TEST_A2 dropped"
+: sql$ = "DROP INDEX DEMO_TEST_A1"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Index DEMO_TEST_A1 dropped"
+: sql$ = "DROP TABLE DEMO_TEST"
+: CALL KI_PREPARE handle, sql$ TO ki_status, colcount
+: IF ki_status == 0 THEN CALL KI_EXECUTE handle TO ki_status, rowcount, reclen
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status == 0 THEN PRINT "Table DEMO_TEST dropped"
+: IF ki_status <> 0 THEN PRINT "DROP TABLE failed: "; ki_status
+: REM ================================================================
+: REM  SECTION 17: FREE HANDLE
+: REM ================================================================
+: PRINT "--- 17. Free handle ---"
+: CALL KI_FREE_HANDLE handle TO ki_status
+: PRINT "Done."
+: $END

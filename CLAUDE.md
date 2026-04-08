@@ -123,6 +123,21 @@ Reading KISAM/KDB files from standalone scripts (KCML 06.00.88):
 : $END
 ```
 
+## String-to-Numeric Conversion
+
+**`VAL(str$, n)` in KCML reads `n` bytes of a string as a binary integer** (inverse of `BIN(`) — it is NOT a string-to-numeric parser. `VAL("300")` = 48 (binary value of ASCII byte '0' with default n=1), not 300.
+
+Use `CONVERT str$ TO num` to parse an ASCII number string into a numeric variable:
+
+```kcml
+: DIM s$20, n
+: s$ = "300.50"
+: CONVERT s$ TO n
+: PRINT n
+```
+
+`CONVERT` stops at the first non-numeric character, so trailing spaces in fixed-length string variables are safe.
+
 ## Packed Date Format (OEHDR01 and likely all files)
 
 Type `D`, 4-byte fields store dates as 4 binary-coded bytes that HEXUNPACK reveals as `YYYYMMDD`. To display as DD/MM/YYYY:
@@ -132,6 +147,19 @@ Type `D`, 4-byte fields store dates as 4 binary-coded bytes that HEXUNPACK revea
 : HEXUNPACK STR(rec$, 82, 4) TO hex$
 : date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
 ```
+
+## IBM Packed Decimal (type K / type I in DD files, verified on S_STOK01)
+
+Type K (`DECIMAL` in SQL, type `I` in legacy DD files) stores packed BCD numbers. Use `UNPACK` directly — it handles IBM BCD format:
+
+```kcml
+: REM 8-byte field, 6 decimal places (15 total digits = 9 integer + 6 decimal)
+: DIM packed$8, val
+: packed$ = STR(rec$, 513, 8)
+: UNPACK (#########.######) packed$ TO val
+```
+
+The image string must match: `(field_bytes*2 - 1 - scale)` `#` chars + `.` + `scale` `#` chars. For fallback/inspection using HEXUNPACK: 8 bytes = 16 hex chars = 15 BCD digits + sign nibble (last char, C=pos, D=neg). Build decimal string: `STR(hex$, 1, 9) & "." & STR(hex$, 10, 6)` then `CONVERT valstr$ TO val`.
 
 ## KISAM File Access (Verified Working Pattern)
 

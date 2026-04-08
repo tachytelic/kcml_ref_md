@@ -16,7 +16,7 @@ Returns the count of consecutive numeric digit characters (`0`–`9`) beginning 
 
 If `start` is omitted scanning begins at position 1. If `length` is supplied scanning is limited to that many characters.
 
-Primarily used to validate that a field contains a number before converting it with `VAL(`.
+Primarily used to validate that a field contains an ASCII number before converting it with `CONVERT alpha TO numeric`. (Note: `VAL(` reads binary bytes, not ASCII text — use `CONVERT` for ASCII numeric strings.)
 
 ## Examples
 
@@ -36,7 +36,7 @@ PRINT NUM(s$, 4)       : REM  3  (digits starting at position 4)
 REM Validate before converting
 DIM input$10, value
 input$ = "42"
-IF NUM(input$) == LEN(input$) THEN value = VAL(input$)
+IF NUM(input$) == LEN(input$) THEN CONVERT input$ TO value
 ```
 
 ## Notes
@@ -47,6 +47,7 @@ IF NUM(input$) == LEN(input$) THEN value = VAL(input$)
 
 ## See Also
 
-- `VAL(` — convert string to numeric
+- `CONVERT` — convert ASCII string to numeric (use this, not `VAL(`, for ASCII text numbers)
+- `VAL(` — read binary bytes as integer (not ASCII parsing)
 - `LEN(` — string length
 - `POS(` — position of a character satisfying a relation
