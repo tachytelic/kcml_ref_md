@@ -198,26 +198,6 @@ CGI scripts can use `ENV("QUERY_STRING")` to read URL parameters.
 
 For complete Apache setup instructions, see [CGI_SETUP.md](../../kcml_executor/CGI_SETUP.md).
 
-### HTTP Server (Legacy)
-
-An HTTP server on port 8765 can accept code via POST, but may hang on complex code (subroutines):
-
-```bash
-curl -X POST http://10.1.1.213:8765/execute \
-  -H "Content-Type: application/json" \
-  -d '{"code": "PRINT \"Hello World\""}'
-```
-
-Response:
-```json
-{
-  "success": true,
-  "stdout": "Hello World\n",
-  "stderr": "",
-  "exit_code": 0
-}
-```
-
 ## Writing KCML for Script Execution
 
 When writing code to run with `kcml -p` (non-interactive):
