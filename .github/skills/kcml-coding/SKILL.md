@@ -453,6 +453,7 @@ For in-depth coverage of specific topics, see the reference files:
 | Global Partitions | [global-partitions.md](./references/global-partitions.md) | SELECT @PART, @LOCK/@UNLOCK, libraries, KI_ database routines, SYM() |
 | Field Variables | [field-variables.md](./references/field-variables.md) | DEFRECORD, FLD(), dot notation, packed numeric fields, record layouts |
 | **KDB / KISAM (full)** | [kdb_md/README.md](../../../kdb_md/README.md) | Complete KDB reference — handles, rowsets, SQL API, DDL/DML, transactions, field types, demo |
+| **KCML Forms (full)** | [kcmlforms_md/README.md](../../../kcmlforms_md/README.md) | Win32 forms — DEFFORM syntax, events, all controls, grid, menus, data binding, patterns |
 
 ## Real-World Patterns (from Source Code)
 
