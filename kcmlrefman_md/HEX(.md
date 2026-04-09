@@ -51,14 +51,23 @@ output$ = HEX(020402000F) & string$    REM five-byte escape sequence prefix
 
 ### Quote embedding
 
+Two verified approaches for embedding a double-quote in a string:
+
 ```kcml
 msg$ = "He said " & HEX(22) & "hello" & HEX(22)
 REM produces: He said "hello"
 ```
 
+```kcml
+msg$ = "He said ""hello"""
+REM produces: He said "hello"
+```
+
+`""` (two consecutive double-quotes) inside a string literal is interpreted as a single literal `"`. This is often more readable than `HEX(22)` when building structured text such as JSON. Verified by execution.
+
 ## Notes
 
-- `HEX(22)` is the standard KCML way to embed a double-quote character. **Do not use `CHR$(34)`** — that syntax is not valid in KCML.
+- `HEX(22)` and `""` (double double-quote) are both valid ways to embed a double-quote character. **Do not use `CHR$(34)`** — that syntax is not valid in KCML.
 - Exactly two hex digits per byte — `HEX(9)` is an error; use `HEX(09)`.
 - `HEX(` is a **literal**, not a function — it cannot be called with a variable argument. To convert a variable's binary value to hex text, use `HEXUNPACK`.
 

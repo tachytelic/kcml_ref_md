@@ -5,88 +5,119 @@
 ## Syntax
 
 ```
-PRINT [expr [, | ; expr] ...]
-PRINT #stream, [expr [, | ; expr] ...]
-PRINT TO buffer$, [expr [, | ; expr] ...]
+PRINT [print_item [separator print_item] ...]
+PRINT #stream, print_item ...
+PRINT TO buffer$; print_item ...
 ```
+
+Where separators are:
+- `;` — append directly (no extra space)
+- `,` — tab to next column (tab stops every 16 characters)
 
 ## Description
 
-`PRINT` sends output to the currently selected print device (set via `SELECT PRINT`). In script mode (`-p`) this is stdout.
+`PRINT` sends output to the current PRINT device (set via `SELECT PRINT`). In immediate mode it goes to the console. In script mode (`kcml -p`) it goes to stdout.
 
 ### Separators
 
 | Separator | Effect |
 |-----------|--------|
-| `,` (comma) | Tab to next 16-character column boundary |
-| `;` (semicolon) | Append immediately with no gap |
-| (end of statement) | Appends carriage return (`HEX(0D)`) |
-| Trailing `,` or `;` | Suppresses the CR; next PRINT continues on same line |
+| `;` | No separator — items are adjacent |
+| `,` | Tab to next multiple of 16 |
+| Trailing `;` | Suppress carriage return — next PRINT continues on same line |
+| Trailing `,` | Same, but with tab |
+| Neither | Carriage return appended automatically |
 
-### Printing to a stream
+### Printing numerics
 
-`PRINT #stream, ...` writes to a file opened with `OPEN #stream`. `AT(`, `BOX(`, and `TAB(` are ignored when printing to a file.
+Numeric values always print with a leading space (or `-` for negatives) and a trailing space. No leading/trailing zeros. Very large or small values use scientific notation (`1.23456789012E+13`).
 
-### Printing to a buffer
+### Printing strings
 
-`PRINT TO buffer$, ...` appends output into an alpha variable. The first two bytes of `buffer$` hold a binary count of bytes stored so far. Initialize with `buffer$ = BIN(0, 2)` (or `HEX(0000)` in first two bytes). If the buffer is full, output is truncated and the count is clamped to the buffer length.
+Literal strings print exactly as written including trailing spaces. Variables print their content including space padding.
 
-## Numeric output format
+### PRINT TO buffer$
 
-- Positive numbers: leading space, value, trailing space.
-- Negative numbers: leading `-`, value, trailing space.
-- Large/small values: scientific notation (`1.234567890123E+15`).
-- No leading or trailing zeros.
+Appends output into a string variable. The first two bytes hold a binary count of bytes written — initialise to `HEX(00)` before first use.
+
+### PRINT #stream
+
+Redirects output to an open file stream. `AT(`, `BOX(`, and `TAB(` are ignored when printing to files.
+
+### Embedded quotes
+
+Enter `""` (double-double-quote) inside a string literal to produce a single `"` in the output.
 
 ## Examples
 
+### Example 1 — Semicolon vs comma separators
 ```kcml
-PRINT "Hello, World!"       : REM  Hello, World!
-PRINT 42                    : REM   42
-PRINT 100 * 40 / 2          : REM   2000
-PRINT "A","B","C"           : REM  A               B               C
-PRINT "A";"B";"C"           : REM  ABC
+01000 REM Separator comparison
+: PRINT "Semicolon: " ; "A" ; "B" ; "C"
+: PRINT "Comma: " , "A" , "B" , "C"
+: $END
+```
+**Output:**
+```
+Semicolon: ABC
+Comma:          A               B               C
 ```
 
+### Example 2 — Numeric output formatting
 ```kcml
-REM Suppress trailing CR with semicolon
-PRINT "Enter name: ";
-REM  (next PRINT continues on same line)
+01000 REM Numeric PRINT behaviour
+: PRINT 100 * 40 / 2
+: PRINT -99
+: PRINT 9873244 * 9234439
+: $END
+```
+**Output:**
+```
+ 2000 
+-99 
+ 9.117386945012E+13 
 ```
 
+### Example 3 — Trailing semicolon for same-line continuation
 ```kcml
-REM Print to file
-OPEN #1, "/tmp/out.txt", "w"
-PRINT #1, "Line 1"
-PRINT #1, "Line 2"
-CLOSE #1
+01000 REM Print numbers on one line using trailing semicolons
+: DIM x
+: FOR x = 1 TO 5
+:   PRINT x ;
+: NEXT x
+: PRINT ""
+: $END
+```
+**Output:**
+```
+ 1  2  3  4  5
 ```
 
+### Example 4 — Embedded quotes and substrings
 ```kcml
-REM Print to buffer
-DIM buf$200
-buf$ = HEX(0000)             : REM init count to 0
-PRINT TO buf$; "Hello"
-PRINT TO buf$; " World"
-PRINT HEXOF(-buf$)           : REM shows count + content
+01000 REM Printing substrings and embedded quotes
+: DIM apple$10
+: apple$ = "ABCDEFGHIJ"
+: PRINT apple$
+: PRINT STR(apple$,5,5)
+: PRINT "She said ""hello"" to him"
+: $END
 ```
-
-```kcml
-REM Embedded quotes using double-double-quote
-PRINT "She said ""hello"" to me"
-REM  She said "hello" to me
+**Output:**
+```
+ABCDEFGHIJ
+EFGHI
+She said "hello" to him
 ```
 
 ## Notes
 
-- Use `HEX(22)` for quotes in string variables (`HEX(22)` = `"`); the double-quote technique above works only in literal strings in source code.
-- `AT(`, `BOX(`, `TAB(` are PRINT functions for screen positioning — see their own pages.
-- `PRINT AT(row, col)` combines output and cursor positioning in one statement.
+- Use `PRINT USING` for formatted numeric output (currency, decimal places, etc.) — see [PRINTUSING](PRINTUSING.md).
+- `PRINT AT(row, col)` positions the cursor for screen output — see [PRINT AT](PRINT_AT.md).
+- When writing to files (`PRINT #stream`), `AT(`, `BOX(`, `TAB(` are silently ignored.
+- `PRINT TO buffer$` requires the first two bytes initialised to `HEX(0000)` before the first write. The count in those bytes is updated automatically after each write.
+- A carriage return (`HEX(0D)`) is appended automatically unless the statement ends with `;` or `,`.
 
-## See Also
+## See also
 
-- `PRINT AT(` — print at screen position
-- `PRINT TAB(` — tabbed output
-- `PRINTUSING` — formatted numeric output
-- `SELECT PRINT` — change the print device
-- `OPEN #` — open a file stream
+[PRINTUSING](PRINTUSING.md), [SELECT PRINT](SELECT_PRINT.md), [MAT PRINT](MAT_PRINT.md)

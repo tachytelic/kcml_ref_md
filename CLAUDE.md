@@ -76,7 +76,7 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 - Arrays are **1-based**: `DIM arr(10)` gives elements 1 through 10
 - Script mode (kcml -p): statements separated by `:`, continuation lines start with `: `
 - `$END` terminates the KCML session — in `-p` scripts the interpreter exits naturally when it runs out of statements, so `$END` is not required at the end but is used to exit early
-- Use `HEX(22)` for embedded quote characters — **not** `CHR$(34)`
+- Use `HEX(22)` or `""` (double double-quote) for embedded quote characters — **not** `CHR$(34)`. `""` is often cleaner when building structured text like JSON: `msg$ = "say ""hello"""` → `say "hello"`
 - **Never put `:` in a REM statement** — KCML treats `:` as a statement separator even inside REM text, causing syntax errors. This includes URLs — `http://` breaks REM; write `http [colon] //` instead
 - `DEFFN` (older syntax) and `DEFSUB`/`END SUB` (modern) both work; real source uses `DEFFN`
 - Multiple assignment: `a$, b$, c$ = value` sets all variables to the same value
@@ -91,23 +91,34 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 
 ## What NOT to Do
 
-- Do not use `CHR$(34)` — use `HEX(22)` for quotes in strings
+- Do not use `CHR$(34)` — use `HEX(22)` or `""` (double double-quote) for quotes in strings
 - Do not use `INPUT` in scripts run with `kcml -p` — non-interactive, will hang
 - Do not forget `$END` at the end of every script
 - **Never background KCML processes** — they exhaust the single-user licence; always run foreground
 - **Never use blank lines in `kcml -p` scripts** — a blank line silently terminates execution. Use `: REM` lines for spacing. Bare `REM` (without `: ` prefix) also terminates the script mid-run.
+- **`-p` scripts: put ALL code under a numbered line** — unnumbered `: ` lines are treated as immediate mode. `GOSUB`/`RETURN` only work correctly when the calling code is inside a numbered block (e.g. `01000 REM main`). Use `01000 REM main` at the top of every script that uses subroutines.
+- **`RETURN` inside `IF...THEN` causes A07** — use a flag variable instead: `IF condition THEN sv_ok = 0` then `IF sv_ok == 1 THEN DO ... END DO : RETURN`
+- **`& numeric` concatenation unreliable in PRINT** — use semicolons: `PRINT "status="; ki_status` not `PRINT "status=" & ki_status`
+- **`LOCAL DIM` not supported in DEFFN `-p` mode** — declare all subroutine variables in the outer DIM block
 - **Never use 4-param `KI_OPEN`** in KCML 6.x — `CALL KI_OPEN handle, stream, file$, mode$` causes an S24 panic. Use `CALL KI_OPEN handle, file$, mode$ TO status` (3 params).
+- **`HEX(22)` cannot be used with `&` in PRINT** — using `HEX(22)` as a `&` operand in a PRINT statement causes a syntax error because the embedded `"` confuses the parser. Assign it to a variable first: `q$ = HEX(22)` then use `;` separators: `PRINT q$; "field"; q$; ": "; q$; value$; q$`
+- **`IF ... THEN x ELSE y` single-line ELSE not supported** — KCML's `IF ... THEN` form does not support an inline `ELSE`. Use two separate IF statements or a DO block structure instead.
 
 ## KISAM File Access (Verified Working Pattern)
 
 Reading KISAM/KDB files from standalone scripts (KCML 06.00.88):
 
+**CRITICAL**: Start the script with a numbered line (`01000 REM ...`). Unnumbered `: ` lines are "immediate mode" — GOSUB/RETURN only work correctly inside numbered blocks.
+
 ```kcml
+01000 REM Read KISAM file
 : DIM ki_status, handle, ki_sym, ki_dataptr$6, ki_key$64, rec$512, count
 : CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
 : CALL KI_OPEN handle, "/full/path/to/FILENAME", "R" TO ki_status
+: IF ki_status <> 0 THEN PRINT "open failed"
 : IF ki_status <> 0 THEN $END
 : CALL KI_START_BEG handle, 1 TO ki_status
+: IF ki_status <> 0 THEN PRINT "start failed"
 : IF ki_status <> 0 THEN $END
 : ki_sym = SYM(rec$)
 : count = 0
@@ -115,7 +126,6 @@ Reading KISAM/KDB files from standalone scripts (KCML 06.00.88):
 :   CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
 :   IF ki_status == 0 THEN DO
 :     count++
-:     PRINT "Key: ["; STR(ki_key$, 1, 20); "]"
 :     PRINT "Rec: ["; STR(rec$, 1, 60); "]"
 :   END DO
 : UNTIL ki_status <> 0 OR count >= 10
@@ -170,6 +180,21 @@ Key facts:
 - Pre-assign `ki_sym = SYM(rec$)` — do not pass `SYM()` inline to `KI_READ_NEXT`
 - Status 2 = EOF (normal), 0 = success, 1 = not found
 - `CALL KI_START handle, key$, path TO status` — key$ before path in KCML 6.x (libKI has them reversed)
+
+## ERP Wrapper ki_start_beg Bug (after EOF)
+
+After reading a KISAM file to EOF, the ERP global wrapper `GOSUB 'ki_start_beg(handle, 1)` fails to reposition — it returns a non-zero status. The fix: capture the first real part key before any EOF reads, then use `GOSUB 'ki_start(handle, first_part$, 1)` instead.
+
+```kcml
+: REM Capture before any full-file scan
+: GOSUB 'ki_start(gb_h(51), ps_null_key$, 1)
+: GOSUB 'ki_read_next(gb_h(51), 1, SYM(ps_srec$))
+: IF ki_status == 0 THEN ps_first_part$ = RTRIM(STR(ps_srec$, pf_m1(1), pf_m2(1)))
+: REM Later, to restart from beginning (works even after EOF):
+: GOSUB 'ki_start(gb_h(51), ps_first_part$, 1)
+```
+
+`CALL KI_START_BEG handle, 1 TO ki_status` (direct, not ERP wrapper) works fine after EOF.
 
 ## Conditional $END Pattern
 

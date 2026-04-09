@@ -1,0 +1,60 @@
+01000 REM kisam_json.kcml -- KISAM record to JSON
+: REM Usage -- kcml -p kisam_json.kcml <PART_NO> [<STOK_FILE>]
+: REM
+: REM Techniques used
+: REM   $ARG(1) reads the part number from the command line
+: REM   $PRINTF with \n builds multi-line JSON without PRINT wrapping
+: REM   Double double-quote "" is the KCML way to embed a literal " in a string
+: REM   No q$ variable, no $TRAN, no placeholder characters needed
+: REM ================================================================
+: DIM ki_status, handle, ki_sym, ki_dataptr$6, ki_key$64, rec$1024
+: DIM target$64, stok_file$256, json$1024, d_hex$8, v_num
+: REM ================================================================
+: target$ = RTRIM($ARG(1))
+: IF target$ == " " THEN DO
+:   PRINT "{""error"":""usage -- kcml -p kisam_json.kcml PART_NO""}"
+:   $END
+: END DO
+: stok_file$ = RTRIM($ARG(2))
+: IF stok_file$ == " " THEN stok_file$ = "/home/paul/Documents/kisam/S_STOK01"
+: REM ================================================================
+: CALL KI_ALLOC_HANDLE 0, 1 TO handle, ki_status
+: IF ki_status <> 0 THEN DO
+:   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+:   $END
+: END DO
+: CALL KI_OPEN handle, stok_file$, "R" TO ki_status
+: IF ki_status <> 0 THEN DO
+:   json$ = $PRINTF("{""error"":""KI_OPEN failed: %d""}", ki_status)
+:   PRINT RTRIM(json$)
+:   CALL KI_FREE_HANDLE handle TO ki_status
+:   $END
+: END DO
+: CALL KI_START handle, target$, 1 TO ki_status
+: ki_sym = SYM(rec$)
+: CALL KI_READ_NEXT handle, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+: CALL KI_CLOSE handle TO ki_status
+: IF ki_status <> 0 THEN DO
+:   PRINT "{""error"":""part not found""}"
+:   $END
+: END DO
+: REM ================================================================
+: REM String fields -- $PRINTF %s strips trailing spaces from STR() slice
+: REM Date fields -- HEXUNPACK then $PRINTF 3-arg DD/MM/YYYY
+: REM Numeric fields -- UNPACK then $PRINTF %.6f (no quotes around value)
+: json$ = "{"
+: json$ = json$ & $PRINTF("\n  ""part_no"": ""%s"",",      STR(rec$, 20, 15))
+: json$ = json$ & $PRINTF("\n  ""description"": ""%s"",",  STR(rec$, 36, 30))
+: json$ = json$ & $PRINTF("\n  ""supplier"": ""%s"",",     STR(rec$, 67,  7))
+: json$ = json$ & $PRINTF("\n  ""bin_location"": ""%s"",", STR(rec$, 74,  8))
+: HEXUNPACK STR(rec$, 10, 4) TO d_hex$
+: json$ = json$ & $PRINTF("\n  ""created_on"": ""%s/%s/%s"",", STR(d_hex$,7,2), STR(d_hex$,5,2), STR(d_hex$,1,4))
+: HEXUNPACK STR(rec$, 14, 4) TO d_hex$
+: json$ = json$ & $PRINTF("\n  ""changed_on"": ""%s/%s/%s"",", STR(d_hex$,7,2), STR(d_hex$,5,2), STR(d_hex$,1,4))
+: UNPACK (#########.######) STR(rec$,513,8) TO v_num
+: json$ = json$ & $PRINTF("\n  ""on_hand"":%.6f,",   v_num)
+: UNPACK (#########.######) STR(rec$,577,8) TO v_num
+: json$ = json$ & $PRINTF("\n  ""local_cost"":%.6f", v_num)
+: json$ = json$ & $PRINTF("\n}")
+: PRINT RTRIM(json$)
+: $END

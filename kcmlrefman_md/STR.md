@@ -1,69 +1,96 @@
 # STR(
 
-> Extracts or references a substring of an alpha variable. Can be used on both sides of an assignment.
+> Extracts or targets a substring within an alpha variable.
 
 ## Syntax
 
 ```
-STR(alpha_expr)                    (entire string)
-STR(alpha_expr, start)             (from start to end)
-STR(alpha_expr, start, length)     (substring)
+STR(alpha_expression [, [start] [, length]])
 ```
-
-## Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `alpha_expr` | Source string variable or expression |
-| `start` | 1-based start position (default: 1) |
-| `length` | Number of bytes (default: rest of string including trailing spaces) |
+| `alpha_expression` | The string to operate on |
+| `start` | Starting byte position (1-based). Defaults to 1 |
+| `length` | Number of bytes to extract. Defaults to remainder of string including trailing spaces |
 
 ## Description
 
-`STR(` defines a substring reference. It is valid:
-- **As an r-value** (right of `=`): extracts bytes from the source.
-- **As an l-value** (left of `=`): writes bytes into the source at the specified position. If the value assigned is shorter than `length`, the remainder is space-padded.
+`STR(` defines a substring of an alpha expression. It is valid **on either side of an assignment**:
 
-`LEN(STR(var$))` returns the **declared length** of `var$` (its total allocated size).
+- **Right side** — extracts a substring: `sub$ = STR(s$, 3, 5)`
+- **Left side** — overwrites a portion of a string in place: `STR(s$, 3, 5) = "XXXXX"`
 
-`FLD(` is preferred over `STR(` for named field access — it is more readable and often faster.
+When `STR(` is used on the left side and the replacement value is shorter than the specified length, the remainder of the substring is padded with trailing spaces.
+
+**Getting the declared size:** `LEN(STR(var$))` (with no start/length) returns the total declared allocation of `var$`, not its content length.
+
+`FLD(` is the preferred alternative when working with structured records — it is more readable and typically faster.
 
 ## Examples
 
+### Example 1 — Extracting substrings
 ```kcml
-DIM name$30, part$10
-name$ = "John Smith          "
-PRINT STR(name$, 1, 4)      : REM  John
-PRINT STR(name$, 6)         : REM  Smith         (to end, includes spaces)
-PRINT LEN(STR(name$))       : REM  30  (declared length)
+01000 REM Extract parts of a string by position
+: DIM s$20, sub$10
+: s$ = "Hello World"
+: sub$ = STR(s$, 7, 5)
+: PRINT "STR(s$,7,5): " ; RTRIM(sub$)
+: sub$ = STR(s$, 1, 5)
+: PRINT "STR(s$,1,5): " ; RTRIM(sub$)
+: $END
+```
+**Output:**
+```
+STR(s$,7,5): World
+STR(s$,1,5): Hello
 ```
 
+### Example 2 — Overwriting part of a string (left-side assignment)
 ```kcml
-REM Assignment into a substring (l-value)
-STR(area$,, 1) = HEX(02)      : REM  set first byte
-STR(temp$, 2) = ALL(HEX(FF))  : REM  fill from byte 2 to end with HEX(FF)
-STR(test$, count, 10) = STR(object$, count, 10)  : REM  copy 10 bytes
+01000 REM Modify a substring in place
+: DIM t$20
+: t$ = "AAAAAAAAAA"
+: STR(t$,3,3) = "BBB"
+: PRINT "After STR assign: " ; RTRIM(t$)
+: REM Overwrite first byte with a control byte
+: STR(t$,,1) = HEX(02)
+: PRINT "First byte set to HEX(02)"
+: $END
+```
+**Output:**
+```
+After STR assign: AABBBAAAAA
+First byte set to HEX(02)
 ```
 
+### Example 3 — Get declared size with LEN(STR())
 ```kcml
-REM Conditional check of a byte
-IF STR(average$,, 1) == HEX(FF) THEN PRINT "Flag set"
+01000 REM Get declared size vs content length
+: DIM name$50
+: name$ = "Smith"
+: PRINT "Content LEN: " ; LEN(name$)
+: PRINT "Declared size: " ; LEN(STR(name$))
+: REM Fill entire allocated space with a byte
+: STR(name$) = ALL(HEX(FF))
+: PRINT "All FF: declared size = " ; LEN(STR(name$))
+: $END
 ```
-
-```kcml
-REM Find declared string length
-DIM buf$512
-PRINT LEN(STR(buf$))    : REM  512
+**Output:**
+```
+Content LEN:  5 
+Declared size:  50 
+All FF: declared size =  50 
 ```
 
 ## Notes
 
-- **Trailing spaces are included** when `length` is omitted — `STR(var$, 5)` goes to the end including all padding.
-- `STR(var$, 1, LEN(var$))` gives the content without trailing spaces.
-- `FLD(` is equivalent but more readable for named record fields.
+- `STR(` is 1-based — position 1 is the first byte.
+- Omitting `start` defaults to position 1. Omitting `length` takes the rest of the string **including trailing spaces**.
+- When using `STR(` on the left side, if the replacement is shorter than `length`, the gap is space-padded.
+- Consider `FLD(` instead of `STR(` for named record fields — same semantics but readable and faster.
+- `STR(var$,,1)` is a common idiom for reading/writing a single byte at position 1.
 
-## See Also
+## See also
 
-- `FLD(` — field reference (preferred for named fields)
-- `LEN(` — content length (excludes trailing spaces)
-- `POS(` — find character position
+[LEN(](LEN.md), [FLD(](FLD.md), [ALL(](ALL.md), [HEXUNPACK](HEXUNPACK.md)

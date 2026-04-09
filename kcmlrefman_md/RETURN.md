@@ -1,79 +1,103 @@
 # RETURN
 
-> Returns from a subroutine to the caller, optionally returning a value.
+> Ends a subroutine and returns control (and optionally a value) to the caller.
 
 ## Syntax
 
 ```
 RETURN
 RETURN expr
+RETURN CLEAR
 ```
 
 ## Description
 
-Marks the end of a subroutine (`GOSUB` / `GOSUB'` / `DEFSUB` / `DEFFN`) and returns execution to the statement immediately after the call.
+`RETURN` marks the end of a subroutine started with `GOSUB` or `GOSUB 'label`. Control passes back to the statement immediately after the calling `GOSUB`.
 
-- Terminates any open `FOR … NEXT` loops within the subroutine.
-- Removes local variables (`LOCAL DIM`) from scope.
-- `RETURN expr` returns a value when the subroutine was called as a function expression.
+**Returning a value:** When a subroutine is called as a function (e.g. `x = 'calculate(n)`), `RETURN expr` passes the value back to the expression. The type of the returned value must match the function type (numeric function returns a number, `$`-suffixed function returns a string).
 
-The return type (alpha or numeric) must match the subroutine type:
+**Terminating FOR loops:** `RETURN` also closes any open `FOR...NEXT` loops that were entered within the subroutine.
 
-```kcml
-search$ = 'Next_rec$(stream)    : REM  alpha function — RETURN must return string
-total   = 'Calculate(bal())     : REM  numeric function — RETURN must return number
-```
+**Local variables:** Any variables declared with `LOCAL DIM` or `DEFSUB` parameters are destroyed on `RETURN`.
 
-### RETURN in $DECLARE / object method calls
+**`RETURN CLEAR`:** Clears the entire RETURN stack — use when you want to abort back to the top level without unwinding normally.
 
-`RETURN` is also a keyword prefix in `$DECLARE` calls and object method calls for output parameters:
-
-```kcml
-'KCMLCORBACreate("myObject", "Add", RETURN myhandle)
-worksheet.Range("A9").Value(RETURN t)
-worksheet.Range("A10:D11").Value(RETURN t())
-```
+**Function key context:** If a `RETURN` is encountered in a routine triggered by a function key, it returns to immediate mode or to the statement after the interrupted `LINPUT`.
 
 ## Examples
 
+### Example 1 — Basic RETURN from subroutine
 ```kcml
-REM Simple subroutine return
-GOSUB 1000
-PRINT "Back from subroutine"
-$END
-
-1000 PRINT "In subroutine"
-     RETURN
+01000 REM RETURN sends control back to caller
+: DIM result
+: GOSUB 02000
+: PRINT "Back from subroutine, result = " ; result
+: GOSUB 02000
+: PRINT "Called again, result = " ; result
+: $END
+02000 REM Subroutine
+: result++
+: PRINT "In subroutine, result = " ; result
+: RETURN
+```
+**Output:**
+```
+In subroutine, result =  1 
+Back from subroutine, result =  1 
+In subroutine, result =  2 
+Called again, result =  2
 ```
 
+### Example 2 — RETURN with numeric value
 ```kcml
-REM Return value from named subroutine
-DIM result$50
-result$ = 'GetName$(1)
-PRINT result$
-$END
-
-DEFSUB 'GetName$(id)
-  LOCAL DIM name$30
-  name$ = "Customer " & STR(id)
-  RETURN name$
-END SUB
+01000 REM DEFFN returning a computed value
+: DIM n
+: n = 'double(5)
+: PRINT "double(5) = " ; n
+: n = 'double(21)
+: PRINT "double(21) = " ; n
+: $END
+02000 DEFFN 'double(x)
+: RETURN x * 2
+```
+**Output:**
+```
+double(5) =  10
+double(21) =  42
 ```
 
+### Example 3 — RETURN with string value from DEFSUB
 ```kcml
-REM Return from function key handler
-REM  (RETURN resumes the interrupted LINPUT)
+01000 REM DEFSUB returning a string
+: DIM s$30
+: s$ = 'greet$("Paul")
+: PRINT RTRIM(s$)
+: s$ = 'greet$("World")
+: PRINT RTRIM(s$)
+: $END
+02000 DEFSUB 'greet$(name$)
+: DIM r$50
+: r$ = "Hello " & RTRIM(name$)
+: RETURN r$
+: END SUB
+```
+**Output:**
+```
+Hello Paul
+Hello World
 ```
 
 ## Notes
 
-- `RETURN` with a value from a subroutine called as a statement (not expression) is valid but the value is discarded.
-- Bare `RETURN` from a numeric function returns 0; from an alpha function returns empty string.
-- `RETURN CLEAR` clears the return stack entry without returning control to the caller.
+- **`RETURN` inside `IF...THEN` causes A07** in `-p` script mode. Use a flag variable instead:
+  ```kcml
+  : IF condition THEN ok = 0
+  : IF ok == 0 THEN RETURN
+  ```
+- Every `GOSUB` must eventually reach a `RETURN` — jumping out via `GOTO` leaves orphaned stack entries leading to A04 stack overflow.
+- `RETURN CLEAR` wipes the entire stack — use only when aborting completely (e.g. fatal error recovery).
+- `END SUB` at the end of a `DEFSUB` block acts as an implicit `RETURN`.
 
-## See Also
+## See also
 
-- `RETURN CLEAR` — clear return stack without returning
-- `GOSUB` — call a subroutine by line number
-- `GOSUBquote` — call a named subroutine
-- `DEFSUB` — define a subroutine
+[GOSUB](GOSUB.md), [DEFFN](DEFFN.md), [DEFSUB](DEFSUB.md)
