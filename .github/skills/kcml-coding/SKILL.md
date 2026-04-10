@@ -165,6 +165,24 @@ Or as a one-liner:
 export MAC_ADDRESS="00:0c:44:88:7a:4c" && export SPOOF_HOSTNAME="640UK" && export LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so && /usr/lib/kcml/kcml -p /tmp/test.kcml
 ```
 
+### Shebang Execution (Production / Licensed Systems)
+
+On a properly licensed KCML system (no env vars needed), scripts can be made directly executable with a shebang:
+
+```kcml
+#!/usr/lib/kcml/kcml -p
+01000 REM my_script.kcml
+: PRINT "hello"
+: $END
+```
+
+```bash
+chmod +x my_script.kcml
+./my_script.kcml ARG1       # $ARG(1) = ARG1, same as with -p
+```
+
+KCML ignores the `#!` shebang line. `$ARG` indexing is unchanged — `$ARG(1)` is still the first user argument. On the dev system the env vars are still required, so this offers no advantage there; it's useful when deploying scripts as standalone executables on a production server.
+
 ### SSH/SCP Method (Legacy — Windows development only)
 
 This was the previous method when developing on Windows. No longer needed on Linux.
