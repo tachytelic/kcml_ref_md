@@ -1,11 +1,11 @@
 01000 REM Spool Queue Viewer - Forms version ($SPECIAL override for MANAG)
-    : $COMPLIANCE 1
+    : REM Version - 2026-04-08d - User/company perms on initial load; system dropdown defaults to All
     : REM Uses gb_h(213) for SPOOLMAST - pre-allocated by ERP global partition
     : REM sp_rec$, sp_rprog$, sp_on$, gb_h() are pre-declared ERP globals - not DIMd here
     : DIM sp_on_save$1,svstat$8,spool_dir$80,spool_abs$80,err_msg$80
     : DIM sel_file$12,sel_desc$30,sel_stat$10,sel_user$4,sel_date$10,sel_staty$10
     : DIM sel_co$2,sel_system$1,sel_cpy,sel_delflag$1,sel_spool_idx,sel_rclick_row
-    : DIM staty_str$500,staty_cnt,user_str$200,user_cnt,sys_str$500,sys_cnt,buf$65000,result
+    : DIM staty_str$(50)10,staty_cnt,user_str$(50)4,user_cnt,sys_str$(50)10,sys_cnt,buf$65000,result
     : DIM sv_tmp_path$280
     : DIM sv_sel_printer$3,sv_prt_cnt,sv_prt_code$(50)3
     : DIM sv_disp,grid_idx(5001)
@@ -29,24 +29,22 @@
     : REM
 01011 - DEFFORM SpoolView()=\
           {.form,.form$,.Style=0x50c000c4,.Width=848,.Height=457,.Text$="Spool Queue Viewer",.Id=1024},\
-          {.ok,.button$,.Style=0x50010001,.Left=708,.Top=287,.Width=125,.Height=14,.Text$="Exit",.__Anchor=5,.Id=1,.Font=.SegoeControl},\
-          {.btnRefresh,.button$,.Style=0x50010000,.Left=708,.Top=248,.Width=125,.Height=14,.Text$="Refresh",.__Anchor=5,.Id=2011,.Font=.SegoeControl},\
-          {.btnCopyGrid,.button$,.Style=0x50010000,.Left=708,.Top=266,.Width=125,.Height=14,.Text$="Copy Grid",.__Anchor=5,.Id=2012,.Font=.SegoeControl},\
-          {.frameActions,.groupbox$,.Left=644,.Top=240,.Width=196,.Height=68,.Style=0x50000007,.Text$="Actions",.__Anchor=5,.Id=1029},\
-          {.lblFPrt,.static$,.Style=0x50000002,.Left=649,.Top=197,.Width=55,.Height=13,.Id=2015,.Text$="Printer:",.Font=.SegeoLabel},\
-          {.cboPrinter,.combobox$,.Style=0x50210003,.Left=708,.Top=194,.Width=125,.Height=150,.Id=2016,.Font=.SegoeControl},\
+          {.ok,.button$,.Style=0x50010001,.Left=708,.Top=226,.Width=125,.Height=14,.Text$="Exit",.__Anchor=5,.Id=1,.Font=.SegoeControl},\
+          {.btnRefresh,.button$,.Style=0x50010000,.Left=708,.Top=208,.Width=125,.Height=14,.Text$="Refresh",.__Anchor=5,.Id=2011,.Font=.SegoeControl},\
+          {.frameActions,.groupbox$,.Left=644,.Top=200,.Width=196,.Height=44,.Style=0x50000007,.Text$="Actions",.__Anchor=5,.Id=1029},\
+          {.lblFPrt,.static$,.Style=0x50000002,.Left=649,.Top=156,.Width=55,.Height=13,.Id=2015,.Text$="Printer:",.Font=.SegeoLabel},\
+          {.cboPrinter,.combobox$,.Style=0x50210003,.Left=708,.Top=153,.Width=125,.Height=150,.Id=2016,.Font=.SegoeControl},\
           {.lblFStaty,.static$,.Style=0x50000002,.Left=649,.Top=26,.Width=55,.Height=14,.Id=2001,.Text$="Stationery:",.Font=.SegeoLabel},\
           {.cmbStaty,.combobox$,.Style=0x50210003,.Left=708,.Top=26,.Width=125,.Height=125,.Id=2002,.Font=.SegoeControl},\
-          {.lblFStat,.static$,.Style=0x50000002,.Left=653,.Top=49,.Width=51,.Height=13,.Id=2003,.Text$="Status:",.Font=.SegeoLabel},\
-          {.cmbStat,.combobox$,.Style=0x50210003,.Left=708,.Top=48,.Width=125,.Height=100,.Id=2004,.Font=.SegoeControl},\
-          {.lblFUser,.static$,.Style=0x50000002,.Left=655,.Top=71,.Width=49,.Height=13,.Id=2005,.Text$="User:",.Font=.SegeoLabel},\
-          {.cmbUser,.combobox$,.Style=0x50210003,.Left=708,.Top=69,.Width=125,.Height=100,.Id=2006,.Font=.SegoeControl},\
-          {.lblFSys,.static$,.Style=0x50000002,.Left=657,.Top=92,.Width=47,.Height=13,.Id=2013,.Text$="System:",.Font=.SegeoLabel},\
-          {.cmbSys,.combobox$,.Style=0x50210003,.Left=708,.Top=91,.Width=125,.Height=100,.Id=2014,.Font=.SegoeControl},\
-          {.btnApply,.button$,.Style=0x50010000,.Left=708,.Top=113,.Width=125,.Height=14,.Text$="Apply",.Id=2007,.Font=.SegoeControl},\
-          {.lblFFind,.static$,.Style=0x50000002,.Left=649,.Top=134,.Width=55,.Height=13,.Id=2008,.Text$="Description:",.Font=.SegeoLabel},\
-          {.txtFind,.edit$,.Style=0x50810080,.Left=708,.Top=134,.Width=125,.Height=14,.Id=2009,.Font=.SegoeControl},\
-          {.btnFind,.button$,.Style=0x50010000,.Left=708,.Top=154,.Width=125,.Height=14,.Text$="Find",.Id=2010,.Font=.SegoeControl},\
+          {.lblFStat,.static$,.Style=0x50000002,.Left=653,.Top=47,.Width=51,.Height=13,.Id=2003,.Text$="Status:",.Font=.SegeoLabel},\
+          {.cmbStat,.combobox$,.Style=0x50210003,.Left=708,.Top=46,.Width=125,.Height=100,.Id=2004,.Font=.SegoeControl},\
+          {.lblFUser,.static$,.Style=0x50000002,.Left=655,.Top=66,.Width=49,.Height=13,.Id=2005,.Text$="User:",.Font=.SegeoLabel},\
+          {.cmbUser,.combobox$,.Style=0x50210003,.Left=708,.Top=64,.Width=125,.Height=100,.Id=2006,.Font=.SegoeControl},\
+          {.lblFSys,.static$,.Style=0x50000002,.Left=657,.Top=84,.Width=47,.Height=13,.Id=2013,.Text$="System:",.Font=.SegeoLabel},\
+          {.cmbSys,.combobox$,.Style=0x50210003,.Left=708,.Top=83,.Width=125,.Height=100,.Id=2014,.Font=.SegoeControl},\
+          {.lblFFind,.static$,.Style=0x50000002,.Left=649,.Top=102,.Width=55,.Height=13,.Id=2008,.Text$="Description:",.Font=.SegeoLabel},\
+          {.txtFind,.edit$,.Style=0x50810080,.Left=708,.Top=102,.Width=125,.Height=14,.Id=2009,.Font=.SegoeControl},\
+          {.btnFind,.button$,.Style=0x50010000,.Left=708,.Top=119,.Width=125,.Height=14,.Text$="Find",.Id=2010,.Font=.SegoeControl},\
           {.grid,.KCMLgrid$,.Style=0x50010030,.Left=5,.Top=10,.Width=636,.Height=431,.Id=1000,.Rows=1,.Cols=8,.FixedRows=1,.Font=.ConsolasGrid},\
           {.ctxMenu,.Menu$,.Style=0x01,.Id=2020,.mnuView=\
           {.Text$="View"},.mnuSep=\
@@ -58,9 +56,9 @@
           {.Text$="Set Status: Keep"},.mnuSep2=\
           {.Flag=2048},.mnuPrint=\
           {.Text$="Print"}},\
-          {.frameFilter,.groupbox$,.Left=644,.Top=10,.Width=198,.Height=167,.Style=0x50000007,.Text$="Filter and Search",.Id=1027},\
-          {.btnPrint,.button$,.Left=708,.Top=214,.Width=125,.Height=14,.Style=0x50010000,.Text$="Print",.__Anchor=5,.Id=1025,.Font=.SegoeControl},\
-          {.framePrintOptions,.groupbox$,.Left=644,.Top=182,.Width=196,.Height=55,.Style=0x50000007,.Text$="Print Options",.Id=1028},\
+          {.frameFilter,.groupbox$,.Left=644,.Top=10,.Width=198,.Height=127,.Style=0x50000007,.Text$="Filter and Search",.Id=1027},\
+          {.btnPrint,.button$,.Left=708,.Top=172,.Width=125,.Height=14,.Style=0x50010000,.Text$="Print",.__Anchor=5,.Id=1025,.Font=.SegoeControl},\
+          {.framePrintOptions,.groupbox$,.Left=644,.Top=141,.Width=196,.Height=55,.Style=0x50000007,.Text$="Print Options",.Id=1028},\
           {.pane1,.status$,.Width=100,.Style=0x50000000},\
           {.LucidaGrid,.dlgfont$,.Name$="Lucida Console",.Size=11},\
           {.ConsolasGrid,.dlgfont$,.Name$="Consolas",.Size=10},\
@@ -72,13 +70,14 @@
     :         LOCAL DIM sv_i,sv_row,sv_sp_next,sv_sp_entry
     :         LOCAL DIM sv_stat$1,sv_status$10,sv_hex$12,sv_dtreq$10
     :         LOCAL DIM sty_tmp$10,usr_tmp$4,sys_tmp$10,si,sty_found,usr_found,sys_found
-    :         LOCAL DIM sv_pi,sv_ac$3,sv_nm$20,sv_sel_idx
+    :         LOCAL DIM sv_pi,sv_ac$3,sv_nm$20,sv_sel_idx,sv_si2,sv_sj2,sv_stmp$10,sv_utmp$4
+    :         .form.Text$ = "Spool Queue Viewer [08-Apr-26d]"
     :         staty_cnt = 0
     :         user_cnt = 0
     :         sys_cnt = 0
-    :         staty_str$ = ALL(HEX(00))
-    :         user_str$ = ALL(HEX(00))
-    :         sys_str$ = ALL(HEX(00))
+    :         staty_str$() = " "
+    :         user_str$() = " "
+    :         sys_str$() = " "
     :         .cmbStaty.Delete()
     :         .cmbStat.Delete()
     :         .cmbUser.Delete()
@@ -177,13 +176,13 @@
     :                 grid_idx(sv_row) = sv_i
     :                 IF MOD(sv_row,2)==0 THEN .grid.Cell(sv_row,0).BackColor = &.clrAlt
     :                 IF MOD(sv_row,2)<>0 THEN .grid.Cell(sv_row,0).BackColor = &.Default
-    :                 .grid.Cell(sv_row,1).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,2).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,3).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,4).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,5).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,6).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,7).LeftAction = &.Click
+    :                 .grid.Cell(sv_row,1).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,2).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,3).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,4).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,5).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,6).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,7).LeftAction = &.ClickAndDblClick
     :                 .grid.Cell(sv_row,1).RightAction = &.Click
     :                 .grid.Cell(sv_row,2).RightAction = &.Click
     :                 .grid.Cell(sv_row,3).RightAction = &.Click
@@ -194,52 +193,76 @@
     :                 .grid.RightSelect = &.Row
     :                 sty_found = 0
     :                 FOR si = 1 TO staty_cnt
-    :                     IF RTRIM(STR(staty_str$,(si-1)*10+1,10))==sty_tmp$ THEN sty_found = 1
+    :                     IF RTRIM(staty_str$(si))==sty_tmp$ THEN sty_found = 1
     :                 NEXT si
     :                 IF sty_found==0 AND staty_cnt<50 THEN DO
     :                     staty_cnt++ 
-    :                     STR(staty_str$,(staty_cnt-1)*10+1,10) = sty_tmp$
+    :                     staty_str$(staty_cnt) = sty_tmp$
     :                 END DO
     :                 usr_found = 0
     :                 FOR si = 1 TO user_cnt
-    :                     IF RTRIM(STR(user_str$,(si-1)*4+1,4))==usr_tmp$ THEN usr_found = 1
+    :                     IF RTRIM(user_str$(si))==usr_tmp$ THEN usr_found = 1
     :                 NEXT si
     :                 IF usr_found==0 AND user_cnt<50 THEN DO
     :                     user_cnt++ 
-    :                     STR(user_str$,(user_cnt-1)*4+1,4) = usr_tmp$
+    :                     user_str$(user_cnt) = usr_tmp$
     :                 END DO
     :                 sys_found = 0
     :                 FOR si = 1 TO sys_cnt
-    :                     IF RTRIM(STR(sys_str$,(si-1)*10+1,10))==sys_tmp$ THEN sys_found = 1
+    :                     IF RTRIM(sys_str$(si))==sys_tmp$ THEN sys_found = 1
     :                 NEXT si
     :                 IF sys_found==0 AND sys_cnt<50 THEN DO
     :                     sys_cnt++ 
-    :                     STR(sys_str$,(sys_cnt-1)*10+1,10) = sys_tmp$
+    :                     sys_str$(sys_cnt) = sys_tmp$
     :                 END DO
     :             END DO
     :         NEXT sv_i
+    :         FOR sv_si2 = 1 TO staty_cnt-1
+    :             FOR sv_sj2 = 1 TO staty_cnt-sv_si2
+    :                 IF staty_str$(sv_sj2)>staty_str$(sv_sj2+1) THEN DO
+    :                     sv_stmp$ = staty_str$(sv_sj2)
+    :                     staty_str$(sv_sj2) = staty_str$(sv_sj2+1)
+    :                     staty_str$(sv_sj2+1) = sv_stmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbStaty.Add("All")
     :         FOR si = 1 TO staty_cnt
-    :             sty_tmp$ = RTRIM(STR(staty_str$,(si-1)*10+1,10))
-    :             .cmbStaty.Add(sty_tmp$)
+    :             .cmbStaty.Add(RTRIM(staty_str$(si)))
     :         NEXT si
+    :         FOR sv_si2 = 1 TO user_cnt-1
+    :             FOR sv_sj2 = 1 TO user_cnt-sv_si2
+    :                 IF user_str$(sv_sj2)>user_str$(sv_sj2+1) THEN DO
+    :                     sv_utmp$ = user_str$(sv_sj2)
+    :                     user_str$(sv_sj2) = user_str$(sv_sj2+1)
+    :                     user_str$(sv_sj2+1) = sv_utmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbUser.Add("All")
     :         FOR si = 1 TO user_cnt
-    :             usr_tmp$ = RTRIM(STR(user_str$,(si-1)*4+1,4))
-    :             .cmbUser.Add(usr_tmp$)
+    :             .cmbUser.Add(RTRIM(user_str$(si)))
     :         NEXT si
+    :         FOR sv_si2 = 1 TO sys_cnt-1
+    :             FOR sv_sj2 = 1 TO sys_cnt-sv_si2
+    :                 IF sys_str$(sv_sj2)>sys_str$(sv_sj2+1) THEN DO
+    :                     sv_stmp$ = sys_str$(sv_sj2)
+    :                     sys_str$(sv_sj2) = sys_str$(sv_sj2+1)
+    :                     sys_str$(sv_sj2+1) = sv_stmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbSys.Add("All")
     :         FOR si = 1 TO sys_cnt
-    :             sys_tmp$ = RTRIM(STR(sys_str$,(si-1)*10+1,10))
-    :             .cmbSys.Add(sys_tmp$)
+    :             .cmbSys.Add(RTRIM(sys_str$(si)))
     :         NEXT si
-    :         .pane1.Text$ = sv_disp & " items"
     :         .cmbStat.Add("All")
     :         .cmbStat.Add("ON QUEUE")
     :         .cmbStat.Add("PRINTING")
     :         .cmbStat.Add("PRINTED")
     :         .cmbStat.Add("ABORTED")
     :         .cmbStat.Add("KEEP")
+    :         GOSUB 'sv_do_filter()
     :     END EVENT
     :     REM
     :     + DEFEVENT SpoolView.grid.LeftClick()
@@ -322,12 +345,13 @@
     :         LOCAL DIM sv_i,sv_row,sv_sp_next,sv_sp_entry
     :         LOCAL DIM sv_stat$1,sv_status$10,sv_hex$12,sv_dtreq$10
     :         LOCAL DIM sty_tmp$10,usr_tmp$4,sys_tmp$10,si,sty_found,usr_found,sys_found
+    :         LOCAL DIM sv_si2,sv_sj2,sv_stmp$10,sv_utmp$4
     :         staty_cnt = 0
     :         user_cnt = 0
     :         sys_cnt = 0
-    :         staty_str$ = ALL(HEX(00))
-    :         user_str$ = ALL(HEX(00))
-    :         sys_str$ = ALL(HEX(00))
+    :         staty_str$() = " "
+    :         user_str$() = " "
+    :         sys_str$() = " "
     :         .cmbStaty.Delete()
     :         .cmbStat.Delete()
     :         .cmbUser.Delete()
@@ -393,13 +417,13 @@
     :                 grid_idx(sv_row) = sv_i
     :                 IF MOD(sv_row,2)==0 THEN .grid.Cell(sv_row,0).BackColor = &.clrAlt
     :                 IF MOD(sv_row,2)<>0 THEN .grid.Cell(sv_row,0).BackColor = &.Default
-    :                 .grid.Cell(sv_row,1).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,2).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,3).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,4).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,5).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,6).LeftAction = &.Click
-    :                 .grid.Cell(sv_row,7).LeftAction = &.Click
+    :                 .grid.Cell(sv_row,1).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,2).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,3).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,4).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,5).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,6).LeftAction = &.ClickAndDblClick
+    :                 .grid.Cell(sv_row,7).LeftAction = &.ClickAndDblClick
     :                 .grid.Cell(sv_row,1).RightAction = &.Click
     :                 .grid.Cell(sv_row,2).RightAction = &.Click
     :                 .grid.Cell(sv_row,3).RightAction = &.Click
@@ -410,360 +434,80 @@
     :                 .grid.RightSelect = &.Row
     :                 sty_found = 0
     :                 FOR si = 1 TO staty_cnt
-    :                     IF RTRIM(STR(staty_str$,(si-1)*10+1,10))==sty_tmp$ THEN sty_found = 1
+    :                     IF RTRIM(staty_str$(si))==sty_tmp$ THEN sty_found = 1
     :                 NEXT si
     :                 IF sty_found==0 AND staty_cnt<50 THEN DO
     :                     staty_cnt++ 
-    :                     STR(staty_str$,(staty_cnt-1)*10+1,10) = sty_tmp$
+    :                     staty_str$(staty_cnt) = sty_tmp$
     :                 END DO
     :                 usr_found = 0
     :                 FOR si = 1 TO user_cnt
-    :                     IF RTRIM(STR(user_str$,(si-1)*4+1,4))==usr_tmp$ THEN usr_found = 1
+    :                     IF RTRIM(user_str$(si))==usr_tmp$ THEN usr_found = 1
     :                 NEXT si
     :                 IF usr_found==0 AND user_cnt<50 THEN DO
     :                     user_cnt++ 
-    :                     STR(user_str$,(user_cnt-1)*4+1,4) = usr_tmp$
+    :                     user_str$(user_cnt) = usr_tmp$
     :                 END DO
     :                 sys_found = 0
     :                 FOR si = 1 TO sys_cnt
-    :                     IF RTRIM(STR(sys_str$,(si-1)*10+1,10))==sys_tmp$ THEN sys_found = 1
+    :                     IF RTRIM(sys_str$(si))==sys_tmp$ THEN sys_found = 1
     :                 NEXT si
     :                 IF sys_found==0 AND sys_cnt<50 THEN DO
     :                     sys_cnt++ 
-    :                     STR(sys_str$,(sys_cnt-1)*10+1,10) = sys_tmp$
+    :                     sys_str$(sys_cnt) = sys_tmp$
     :                 END DO
     :             END DO
     :         NEXT sv_i
+    :         FOR sv_si2 = 1 TO staty_cnt-1
+    :             FOR sv_sj2 = 1 TO staty_cnt-sv_si2
+    :                 IF staty_str$(sv_sj2)>staty_str$(sv_sj2+1) THEN DO
+    :                     sv_stmp$ = staty_str$(sv_sj2)
+    :                     staty_str$(sv_sj2) = staty_str$(sv_sj2+1)
+    :                     staty_str$(sv_sj2+1) = sv_stmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbStaty.Add("All")
     :         FOR si = 1 TO staty_cnt
-    :             sty_tmp$ = RTRIM(STR(staty_str$,(si-1)*10+1,10))
-    :             .cmbStaty.Add(sty_tmp$)
+    :             .cmbStaty.Add(RTRIM(staty_str$(si)))
     :         NEXT si
+    :         FOR sv_si2 = 1 TO user_cnt-1
+    :             FOR sv_sj2 = 1 TO user_cnt-sv_si2
+    :                 IF user_str$(sv_sj2)>user_str$(sv_sj2+1) THEN DO
+    :                     sv_utmp$ = user_str$(sv_sj2)
+    :                     user_str$(sv_sj2) = user_str$(sv_sj2+1)
+    :                     user_str$(sv_sj2+1) = sv_utmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbUser.Add("All")
     :         FOR si = 1 TO user_cnt
-    :             usr_tmp$ = RTRIM(STR(user_str$,(si-1)*4+1,4))
-    :             .cmbUser.Add(usr_tmp$)
+    :             .cmbUser.Add(RTRIM(user_str$(si)))
     :         NEXT si
+    :         FOR sv_si2 = 1 TO sys_cnt-1
+    :             FOR sv_sj2 = 1 TO sys_cnt-sv_si2
+    :                 IF sys_str$(sv_sj2)>sys_str$(sv_sj2+1) THEN DO
+    :                     sv_stmp$ = sys_str$(sv_sj2)
+    :                     sys_str$(sv_sj2) = sys_str$(sv_sj2+1)
+    :                     sys_str$(sv_sj2+1) = sv_stmp$
+    :                 END DO
+    :             NEXT sv_sj2
+    :         NEXT sv_si2
     :         .cmbSys.Add("All")
     :         FOR si = 1 TO sys_cnt
-    :             sys_tmp$ = RTRIM(STR(sys_str$,(si-1)*10+1,10))
-    :             .cmbSys.Add(sys_tmp$)
+    :             .cmbSys.Add(RTRIM(sys_str$(si)))
     :         NEXT si
-    :         .pane1.Text$ = sv_disp & " items"
     :         .cmbStat.Add("All")
     :         .cmbStat.Add("ON QUEUE")
     :         .cmbStat.Add("PRINTING")
     :         .cmbStat.Add("PRINTED")
     :         .cmbStat.Add("ABORTED")
     :         .cmbStat.Add("KEEP")
+    :         GOSUB 'sv_do_filter()
     :     END EVENT
     :     REM
     :     + DEFEVENT SpoolView.btnFind.Click()
-    :         LOCAL DIM sv_i,sv_row,sv_sp_next,sv_sp_entry
-    :         LOCAL DIM sv_stat$1,sv_status$10,sv_hex$12,sv_dtreq$10
-    :         LOCAL DIM flt_s$10,flt_t$10,flt_u$4,flt_sys$10,flt_d$30,sv_desc$30,sys_tmp$10,row_match,sv_nl,sv_found
-    :         flt_s$ = RTRIM(.cmbStaty.Text$)
-    :         flt_t$ = RTRIM(.cmbStat.Text$)
-    :         flt_u$ = RTRIM(.cmbUser.Text$)
-    :         flt_sys$ = RTRIM(.cmbSys.Text$)
-    :         flt_d$ = RTRIM(.txtFind.Text$)
-    :         DATA LOAD BU T#gb_h(213),(0)sp_rec$
-    :         sv_sp_next = VAL(STR(sp_rec$,,4),4)
-    :         sv_disp = 0
-    :         FOR sv_i = sv_sp_next-1 TO 1 STEP -1
-    :             DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
-    :             sv_stat$ = STR(sp_rec$,57,1)
-    :             IF sv_stat$<>"6" THEN DO
-    :                 SELECT CASE sv_stat$
-    :                 CASE "1"
-    :                     sv_status$ = "ON QUEUE"
-    :                 CASE "2"
-    :                     sv_status$ = "PRINTING"
-    :                 CASE "3"
-    :                     sv_status$ = "PRINTED"
-    :                 CASE "4"
-    :                     sv_status$ = "ABORTED"
-    :                 CASE "5"
-    :                     sv_status$ = "KEEP"
-    :                 CASE ELSE
-    :                     sv_status$ = "UNKNOWN"
-    :                 END SELECT
-    :                 SELECT CASE STR(sp_rec$,84,1)
-    :                 CASE "A"
-    :                     sys_tmp$ = "Accounts"
-    :                 CASE "S"
-    :                     sys_tmp$ = "Stock"
-    :                 CASE "P"
-    :                     sys_tmp$ = "Sales"
-    :                 CASE "C"
-    :                     sys_tmp$ = "Contract"
-    :                 CASE " "
-    :                     sys_tmp$ = "Global"
-    :                 CASE ELSE
-    :                     sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
-    :                 END SELECT
-    :                 row_match = 1
-    :                 IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
-    :                 IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
-    :                 IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
-    :                 IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
-    :                 IF flt_d$<>"" THEN DO
-    :                     sv_desc$ = STR(sp_rec$,17,30)
-    :                     sv_desc$ = $LOWER(sv_desc$)
-    :                     flt_d$ = $LOWER(flt_d$)
-    :                     sv_nl = LEN(RTRIM(flt_d$))
-    :                     MAT SEARCH sv_desc$, == STR(flt_d$,,sv_nl) TO sv_found
-    :                     IF sv_found==0 THEN row_match = 0
-    :                 END DO
-    :                 IF row_match==1 THEN sv_disp++ 
-    :             END DO
-    :         NEXT sv_i
-    :         .grid.Rows = sv_disp+1
-    :         sv_row = 1
-    :         FOR sv_i = sv_sp_next-1 TO 1 STEP -1
-    :             DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
-    :             sv_stat$ = STR(sp_rec$,57,1)
-    :             IF sv_stat$<>"6" THEN DO
-    :                 SELECT CASE sv_stat$
-    :                 CASE "1"
-    :                     sv_status$ = "ON QUEUE"
-    :                 CASE "2"
-    :                     sv_status$ = "PRINTING"
-    :                 CASE "3"
-    :                     sv_status$ = "PRINTED"
-    :                 CASE "4"
-    :                     sv_status$ = "ABORTED"
-    :                 CASE "5"
-    :                     sv_status$ = "KEEP"
-    :                 CASE ELSE
-    :                     sv_status$ = "UNKNOWN"
-    :                 END SELECT
-    :                 SELECT CASE STR(sp_rec$,84,1)
-    :                 CASE "A"
-    :                     sys_tmp$ = "Accounts"
-    :                 CASE "S"
-    :                     sys_tmp$ = "Stock"
-    :                 CASE "P"
-    :                     sys_tmp$ = "Sales"
-    :                 CASE "C"
-    :                     sys_tmp$ = "Contract"
-    :                 CASE " "
-    :                     sys_tmp$ = "Global"
-    :                 CASE ELSE
-    :                     sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
-    :                 END SELECT
-    :                 row_match = 1
-    :                 IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
-    :                 IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
-    :                 IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
-    :                 IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
-    :                 IF flt_d$<>"" THEN DO
-    :                     sv_desc$ = STR(sp_rec$,17,30)
-    :                     sv_desc$ = $LOWER(sv_desc$)
-    :                     flt_d$ = $LOWER(flt_d$)
-    :                     sv_nl = LEN(RTRIM(flt_d$))
-    :                     MAT SEARCH sv_desc$, == STR(flt_d$,,sv_nl) TO sv_found
-    :                     IF sv_found==0 THEN row_match = 0
-    :                 END DO
-    :                 IF row_match==1 THEN DO
-    :                     sv_row++ 
-    :                     sv_sp_entry = VAL(STR(sp_rec$,,4),4)
-    :                     .grid.Cell(sv_row,1).Text$ = sv_sp_entry
-    :                     .grid.Cell(sv_row,2).Text$ = RTRIM(STR(sp_rec$,17,30))
-    :                     .grid.Cell(sv_row,3).Text$ = RTRIM(STR(sp_rec$,47,10))
-    :                     .grid.Cell(sv_row,4).Text$ = sv_status$
-    :                     .grid.Cell(sv_row,5).Text$ = sys_tmp$
-    :                     .grid.Cell(sv_row,6).Text$ = RTRIM(STR(sp_rec$,73,4))
-    :                     HEXUNPACK STR(sp_rec$,59,4) TO sv_hex$
-    :                     IF STR(sv_hex$,,8)<>"00000000" THEN DO
-    :                         sv_dtreq$ = STR(sv_hex$,7,2) & "/" & STR(sv_hex$,5,2) & "/" & STR(sv_hex$,,4)
-    :                     END DO
-    :                     ELSE sv_dtreq$ = ""
-    :                     .grid.Cell(sv_row,7).Text$ = sv_dtreq$
-    :                     .grid.Cell(sv_row,8).Text$ = RTRIM(STR(sp_rec$,5,12))
-    :                     grid_idx(sv_row) = sv_i
-    :                     IF MOD(sv_row,2)==0 THEN .grid.Cell(sv_row,0).BackColor = &.clrAlt
-    :                     IF MOD(sv_row,2)<>0 THEN .grid.Cell(sv_row,0).BackColor = &.Default
-    :                     .grid.Cell(sv_row,1).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,2).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,3).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,4).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,5).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,6).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,7).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,1).RightAction = &.Click
-    :                     .grid.Cell(sv_row,2).RightAction = &.Click
-    :                     .grid.Cell(sv_row,3).RightAction = &.Click
-    :                     .grid.Cell(sv_row,4).RightAction = &.Click
-    :                     .grid.Cell(sv_row,5).RightAction = &.Click
-    :                     .grid.Cell(sv_row,6).RightAction = &.Click
-    :                     .grid.Cell(sv_row,7).RightAction = &.Click
-    :                     .grid.RightSelect = &.Row
-    :                 END DO
-    :             END DO
-    :         NEXT sv_i
-    :         .pane1.Text$ = sv_disp & " items"
-    :     END EVENT
-    :     REM
-    :     + DEFEVENT SpoolView.btnApply.Click()
-    :         LOCAL DIM sv_i,sv_row,sv_sp_next,sv_sp_entry
-    :         LOCAL DIM sv_stat$1,sv_status$10,sv_hex$12,sv_dtreq$10
-    :         LOCAL DIM flt_s$10,flt_t$10,flt_u$4,flt_sys$10,sys_tmp$10,row_match
-    :         flt_s$ = RTRIM(.cmbStaty.Text$)
-    :         flt_t$ = RTRIM(.cmbStat.Text$)
-    :         flt_u$ = RTRIM(.cmbUser.Text$)
-    :         flt_sys$ = RTRIM(.cmbSys.Text$)
-    :         DATA LOAD BU T#gb_h(213),(0)sp_rec$
-    :         sv_sp_next = VAL(STR(sp_rec$,,4),4)
-    :         sv_disp = 0
-    :         FOR sv_i = sv_sp_next-1 TO 1 STEP -1
-    :             DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
-    :             sv_stat$ = STR(sp_rec$,57,1)
-    :             IF sv_stat$<>"6" THEN DO
-    :                 SELECT CASE sv_stat$
-    :                 CASE "1"
-    :                     sv_status$ = "ON QUEUE"
-    :                 CASE "2"
-    :                     sv_status$ = "PRINTING"
-    :                 CASE "3"
-    :                     sv_status$ = "PRINTED"
-    :                 CASE "4"
-    :                     sv_status$ = "ABORTED"
-    :                 CASE "5"
-    :                     sv_status$ = "KEEP"
-    :                 CASE ELSE
-    :                     sv_status$ = "UNKNOWN"
-    :                 END SELECT
-    :                 SELECT CASE STR(sp_rec$,84,1)
-    :                 CASE "A"
-    :                     sys_tmp$ = "Accounts"
-    :                 CASE "S"
-    :                     sys_tmp$ = "Stock"
-    :                 CASE "P"
-    :                     sys_tmp$ = "Sales"
-    :                 CASE "C"
-    :                     sys_tmp$ = "Contract"
-    :                 CASE " "
-    :                     sys_tmp$ = "Global"
-    :                 CASE ELSE
-    :                     sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
-    :                 END SELECT
-    :                 row_match = 1
-    :                 IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
-    :                 IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
-    :                 IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
-    :                 IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
-    :                 IF row_match==1 THEN sv_disp++ 
-    :             END DO
-    :         NEXT sv_i
-    :         .grid.Rows = sv_disp+1
-    :         sv_row = 1
-    :         FOR sv_i = sv_sp_next-1 TO 1 STEP -1
-    :             DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
-    :             sv_stat$ = STR(sp_rec$,57,1)
-    :             IF sv_stat$<>"6" THEN DO
-    :                 SELECT CASE sv_stat$
-    :                 CASE "1"
-    :                     sv_status$ = "ON QUEUE"
-    :                 CASE "2"
-    :                     sv_status$ = "PRINTING"
-    :                 CASE "3"
-    :                     sv_status$ = "PRINTED"
-    :                 CASE "4"
-    :                     sv_status$ = "ABORTED"
-    :                 CASE "5"
-    :                     sv_status$ = "KEEP"
-    :                 CASE ELSE
-    :                     sv_status$ = "UNKNOWN"
-    :                 END SELECT
-    :                 SELECT CASE STR(sp_rec$,84,1)
-    :                 CASE "A"
-    :                     sys_tmp$ = "Accounts"
-    :                 CASE "S"
-    :                     sys_tmp$ = "Stock"
-    :                 CASE "P"
-    :                     sys_tmp$ = "Sales"
-    :                 CASE "C"
-    :                     sys_tmp$ = "Contract"
-    :                 CASE " "
-    :                     sys_tmp$ = "Global"
-    :                 CASE ELSE
-    :                     sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
-    :                 END SELECT
-    :                 row_match = 1
-    :                 IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
-    :                 IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
-    :                 IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
-    :                 IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
-    :                 IF row_match==1 THEN DO
-    :                     sv_row++ 
-    :                     sv_sp_entry = VAL(STR(sp_rec$,,4),4)
-    :                     .grid.Cell(sv_row,1).Text$ = sv_sp_entry
-    :                     .grid.Cell(sv_row,2).Text$ = RTRIM(STR(sp_rec$,17,30))
-    :                     .grid.Cell(sv_row,3).Text$ = RTRIM(STR(sp_rec$,47,10))
-    :                     .grid.Cell(sv_row,4).Text$ = sv_status$
-    :                     .grid.Cell(sv_row,5).Text$ = sys_tmp$
-    :                     .grid.Cell(sv_row,6).Text$ = RTRIM(STR(sp_rec$,73,4))
-    :                     HEXUNPACK STR(sp_rec$,59,4) TO sv_hex$
-    :                     IF STR(sv_hex$,,8)<>"00000000" THEN DO
-    :                         sv_dtreq$ = STR(sv_hex$,7,2) & "/" & STR(sv_hex$,5,2) & "/" & STR(sv_hex$,,4)
-    :                     END DO
-    :                     ELSE sv_dtreq$ = ""
-    :                     .grid.Cell(sv_row,7).Text$ = sv_dtreq$
-    :                     .grid.Cell(sv_row,8).Text$ = RTRIM(STR(sp_rec$,5,12))
-    :                     grid_idx(sv_row) = sv_i
-    :                     IF MOD(sv_row,2)==0 THEN .grid.Cell(sv_row,0).BackColor = &.clrAlt
-    :                     IF MOD(sv_row,2)<>0 THEN .grid.Cell(sv_row,0).BackColor = &.Default
-    :                     .grid.Cell(sv_row,1).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,2).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,3).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,4).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,5).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,6).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,7).LeftAction = &.Click
-    :                     .grid.Cell(sv_row,1).RightAction = &.Click
-    :                     .grid.Cell(sv_row,2).RightAction = &.Click
-    :                     .grid.Cell(sv_row,3).RightAction = &.Click
-    :                     .grid.Cell(sv_row,4).RightAction = &.Click
-    :                     .grid.Cell(sv_row,5).RightAction = &.Click
-    :                     .grid.Cell(sv_row,6).RightAction = &.Click
-    :                     .grid.Cell(sv_row,7).RightAction = &.Click
-    :                     .grid.RightSelect = &.Row
-    :                 END DO
-    :             END DO
-    :         NEXT sv_i
-    :         .pane1.Text$ = sv_disp & " items"
-    :     END EVENT
-    :     REM
-    :     + DEFEVENT SpoolView.btnCopyGrid.Click()
-    :         LOCAL DIM sv_row,sv_rows,sv_line$300,sv_flen,sv_tab$1
-    :         sv_tab$ = HEX(09)
-    :         buf$ = ALL(HEX(00))
-    :         buf_pos = 1
-    :         sv_line$ = "Entry" & sv_tab$ & "Description" & sv_tab$ & "Stationery" & sv_tab$ & "Status" & sv_tab$ & "Sys" & sv_tab$ & "User" & sv_tab$ & "Date Req"
-    :         sv_flen = LEN(sv_line$)
-    :         WHILE sv_flen>0 AND STR(sv_line$,sv_flen,1)==" " DO
-    :             sv_flen = sv_flen-1
-    :         WEND
-    :         IF sv_flen>0 THEN STR(buf$,buf_pos,sv_flen) = STR(sv_line$,,sv_flen)
-    :         buf_pos = buf_pos+sv_flen
-    :         STR(buf$,buf_pos,2) = HEX(0D0A)
-    :         buf_pos = buf_pos+2
-    :         sv_rows = .grid.Rows
-    :         FOR sv_row = 2 TO sv_rows
-    :             IF RTRIM(.grid.Cell(sv_row,8).Text$)<>" " THEN DO
-    :                 sv_line$ = RTRIM(.grid.Cell(sv_row,1).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,2).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,3).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,4).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,5).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,6).Text$) & sv_tab$ & RTRIM(.grid.Cell(sv_row,7).Text$)
-    :                 sv_flen = LEN(sv_line$)
-    :                 WHILE sv_flen>0 AND STR(sv_line$,sv_flen,1)==" " DO
-    :                     sv_flen = sv_flen-1
-    :                 WEND
-    :                 IF sv_flen>0 THEN STR(buf$,buf_pos,sv_flen) = STR(sv_line$,,sv_flen)
-    :                 buf_pos = buf_pos+sv_flen
-    :                 STR(buf$,buf_pos,2) = HEX(0D0A)
-    :                 buf_pos = buf_pos+2
-    :             END DO
-    :         NEXT sv_row
-    :         'kcmlwriteclipboard(STR(buf$,,buf_pos-1))
+    :         GOSUB 'sv_do_filter()
     :     END EVENT
     :     REM
     :     + DEFEVENT SpoolView.cboPrinter.Click()
@@ -776,94 +520,29 @@
     :         GOSUB 'sv_print_spool_file()
     :     END EVENT
     :     REM
+    :     + DEFEVENT SpoolView.cmbStaty.Click()
+    :         GOSUB 'sv_do_filter()
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT SpoolView.cmbStat.Click()
+    :         GOSUB 'sv_do_filter()
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT SpoolView.cmbUser.Click()
+    :         GOSUB 'sv_do_filter()
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT SpoolView.cmbSys.Click()
+    :         GOSUB 'sv_do_filter()
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT SpoolView.grid.LeftDblClk()
+    :         LOCAL DIM sv_dr
+    :         sv_dr = ..CursorRow
+    :         IF sv_dr>1 THEN result = SpoolFileView.Open()
+    :     END EVENT
+    :     REM
     : FORM END SpoolView
-    : DEFSUB 'sv_set_stat(p_idx,p_stat$)
-    : LOCAL DIM p_time
-    : DATA LOAD BU T#gb_h(213),(p_idx*128)sp_rec$
-    : STR(sp_rec$,57,1) = p_stat$
-    : STR(sp_rec$,63,4) = todayp$
-    : CONVERT STR(TIME,,6) TO p_time
-    : PACK(######) STR(sp_rec$,70,3) FROM p_time
-    : STR(sp_rec$,77,4) = u6$(8)
-    : DATA SAVE BU T#gb_h(213),(p_idx*128)sp_rec$
-    : $OPEN #gb_h(213)
-    : DATA SAVE BU T#gb_h(213),(p_idx*128)sp_rec$
-    : $CLOSE #gb_h(213)
-    : END SUB
-    : DEFSUB 'sv_build_temp_file()
-    : LOCAL DIM ch$1,buf_pos,bytes,sv_path$80,sv_tmpdir$260,sv_file,sv_flen
-    : $DECLARE 'sv_creat(STR(),INT())="._lcreat"
-    : $DECLARE 'sv_write(INT(),DIM(),INT())="_lwrite"
-    : $DECLARE 'sv_close(INT())="_lclose"
-    : $DECLARE 'sv_getenv(STR(),RETURN STR(),INT())=".GetEnvironmentVariableA"
-    : sv_tmp_path$ = " "
-    : sv_path$ = RTRIM(spool_abs$) & "/" & RTRIM(sel_file$)
-    : 'sv_getenv("TEMP",sv_tmpdir$,260)
-    : IF sv_tmpdir$==" " THEN sv_tmpdir$ = "C:\Windows\Temp"
-    : sv_tmp_path$ = RTRIM(sv_tmpdir$) & "\" & RTRIM(sel_file$) & ".txt"
-    : buf$ = ALL(HEX(00))
-    : buf_pos = 1
-    : OPEN #8,sv_path$,"r"
-    : REPEAT
-    :     bytes = READ #8,ch$
-    :     IF ch$==HEX(0A) THEN DO
-    :         IF buf_pos<64998 THEN DO
-    :             STR(buf$,buf_pos,2) = HEX(0D0A)
-    :             buf_pos = buf_pos+2
-    :         END DO
-    :     END DO
-    :     IF ch$<>HEX(0A) AND ch$<>HEX(0D) THEN DO
-    :         IF buf_pos<64999 THEN DO
-    :             STR(buf$,buf_pos,1) = ch$
-    :             buf_pos = buf_pos+1
-    :         END DO
-    :     END DO
-    : UNTIL END
-    : CLOSE #8
-    : sv_flen = buf_pos-1
-    : sv_file = 'sv_creat(sv_tmp_path$,0)
-    : IF sv_file<> -1 THEN DO
-    :     'sv_write(sv_file,buf$,sv_flen)
-    :     'sv_close(sv_file)
-    : END DO
-    : IF sv_file== -1 THEN sv_tmp_path$ = " "
-    : END SUB
-    : DEFSUB 'sv_print_spool_file()
-    : LOCAL DIM sv_printbuf$1000,sv_filepos,sv_nextpos,sv_lppos,sv_endpos,sv_q9,sv_eof
-    : IF sv_sel_printer$<>" " AND RTRIM(sel_file$)<>" " THEN DO
-    :     DATA LOAD DC OPEN T#gb_h(212),sel_file$
-    :     ERROR DO
-    :         REM cannot open spool file - silently ignore
-    :     END DO
-    :     ELSE DO
-    :         SELECT PRINT <sv_sel_printer$>(0)
-    :         sv_filepos = 0
-    :         sv_eof = 0
-    :         REPEAT
-    :             DATA LOAD BU T#gb_h(212),(sv_filepos,sv_nextpos)sv_printbuf$
-    :             IF sv_filepos==sv_nextpos THEN sv_eof = 1
-    :             IF sv_eof==0 THEN DO
-    :                 sv_lppos = 1
-    :                 sv_endpos = sv_nextpos-sv_filepos
-    :                 REPEAT
-    :                     sv_q9 = POS(STR(sv_printbuf$,sv_lppos,sv_endpos) == HEX(0A))
-    :                     IF sv_q9>0 THEN DO
-    :                         IF sv_q9==1 THEN PRINT 
-    :                         ELSE PRINT STR(sv_printbuf$,sv_lppos,sv_q9-1)
-    :                         sv_endpos -= sv_q9
-    :                         sv_lppos += sv_q9
-    :                     END DO
-    :                 UNTIL sv_q9==0 OR sv_endpos<=0
-    :                 IF sv_endpos>0 THEN PRINT STR(sv_printbuf$,sv_lppos,sv_endpos);
-    :                 sv_filepos = sv_nextpos
-    :             END DO
-    :         UNTIL sv_eof==1
-    :         $REWIND <sv_sel_printer$>
-    :         DATA SAVE DC CLOSE #gb_h(212)
-    :         IF sel_stat$=="ON QUEUE" THEN GOSUB 'sv_set_stat(sel_spool_idx,"3")
-    :     END DO
-    : END DO
-    : END SUB
 01012 - DEFFORM SpoolFileView()=\
           {.form,.form$,.Style=0x50c000c4,.Width=640,.Height=470,.Text$="Spool File Viewer",.Id=1024},\
           {.ok,.button$,.Style=0x50010001,.Left=582,.Top=5,.Width=50,.Height=14,.Text$="Close",.__Anchor=5,.Id=1,.Font=.SegoeControl},\
@@ -1007,3 +686,208 @@
     : IF sp_rprog$=="REPGEN" THEN LOAD "RG/MN1" 1000
     : IF sp_rprog$=="RWRUN" THEN LOAD "RW/RUN" 1000 BEG 1060
     : LOAD sp_rprog$ 1000,24999
+01920 DEFFN 'sv_do_filter()
+    : LOCAL DIM sv_i,sv_row,sv_sp_next,sv_sp_entry
+    : LOCAL DIM sv_stat$1,sv_status$10,sv_hex$12,sv_dtreq$10
+    : LOCAL DIM flt_s$10,flt_t$10,flt_u$4,flt_sys$10,flt_d$30,sv_desc$30,sys_tmp$10,row_match,sv_nl,sv_found
+    : flt_s$ = RTRIM(SpoolView.cmbStaty.Text$)
+    : flt_t$ = RTRIM(SpoolView.cmbStat.Text$)
+    : flt_u$ = RTRIM(SpoolView.cmbUser.Text$)
+    : flt_sys$ = RTRIM(SpoolView.cmbSys.Text$)
+    : flt_d$ = RTRIM(SpoolView.txtFind.Text$)
+    : DATA LOAD BU T#gb_h(213),(0)sp_rec$
+    : sv_sp_next = VAL(STR(sp_rec$,,4),4)
+    : sv_disp = 0
+    : FOR sv_i = sv_sp_next-1 TO 1 STEP -1
+    :     DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
+    :     sv_stat$ = STR(sp_rec$,57,1)
+    :     IF sv_stat$<>"6" THEN DO
+    :         sv_status$ = "UNKNOWN"
+    :         IF sv_stat$=="1" THEN sv_status$ = "ON QUEUE"
+    :         IF sv_stat$=="2" THEN sv_status$ = "PRINTING"
+    :         IF sv_stat$=="3" THEN sv_status$ = "PRINTED"
+    :         IF sv_stat$=="4" THEN sv_status$ = "ABORTED"
+    :         IF sv_stat$=="5" THEN sv_status$ = "KEEP"
+    :         sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
+    :         IF STR(sp_rec$,84,1)=="A" THEN sys_tmp$ = "Accounts"
+    :         IF STR(sp_rec$,84,1)=="S" THEN sys_tmp$ = "Stock"
+    :         IF STR(sp_rec$,84,1)=="P" THEN sys_tmp$ = "Sales"
+    :         IF STR(sp_rec$,84,1)=="C" THEN sys_tmp$ = "Contract"
+    :         IF STR(sp_rec$,84,1)==" " THEN sys_tmp$ = "Global"
+    :         row_match = 1
+    :         IF u6$(1)<>"9" AND RTRIM(STR(sp_rec$,82,2))<>" " AND STR(sp_rec$,82,2)<>u7$ THEN row_match = 0
+    :         IF u6$(1)<STR(sp_rec$,81,1) THEN row_match = 0
+    :         IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
+    :         IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
+    :         IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
+    :         IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
+    :         IF flt_d$<>"" THEN DO
+    :             sv_desc$ = STR(sp_rec$,17,30)
+    :             sv_desc$ = $LOWER(sv_desc$)
+    :             flt_d$ = $LOWER(flt_d$)
+    :             sv_nl = LEN(RTRIM(flt_d$))
+    :             MAT SEARCH sv_desc$, == STR(flt_d$,,sv_nl) TO sv_found
+    :             IF sv_found==0 THEN row_match = 0
+    :         END DO
+    :         IF row_match==1 THEN sv_disp++
+    :     END DO
+    : NEXT sv_i
+    : SpoolView.grid.Rows = sv_disp+1
+    : sv_row = 1
+    : FOR sv_i = sv_sp_next-1 TO 1 STEP -1
+    :     DATA LOAD BU T#gb_h(213),(sv_i*128)sp_rec$
+    :     sv_stat$ = STR(sp_rec$,57,1)
+    :     IF sv_stat$<>"6" THEN DO
+    :         sv_status$ = "UNKNOWN"
+    :         IF sv_stat$=="1" THEN sv_status$ = "ON QUEUE"
+    :         IF sv_stat$=="2" THEN sv_status$ = "PRINTING"
+    :         IF sv_stat$=="3" THEN sv_status$ = "PRINTED"
+    :         IF sv_stat$=="4" THEN sv_status$ = "ABORTED"
+    :         IF sv_stat$=="5" THEN sv_status$ = "KEEP"
+    :         sys_tmp$ = RTRIM(STR(sp_rec$,84,1))
+    :         IF STR(sp_rec$,84,1)=="A" THEN sys_tmp$ = "Accounts"
+    :         IF STR(sp_rec$,84,1)=="S" THEN sys_tmp$ = "Stock"
+    :         IF STR(sp_rec$,84,1)=="P" THEN sys_tmp$ = "Sales"
+    :         IF STR(sp_rec$,84,1)=="C" THEN sys_tmp$ = "Contract"
+    :         IF STR(sp_rec$,84,1)==" " THEN sys_tmp$ = "Global"
+    :         row_match = 1
+    :         IF u6$(1)<>"9" AND RTRIM(STR(sp_rec$,82,2))<>" " AND STR(sp_rec$,82,2)<>u7$ THEN row_match = 0
+    :         IF u6$(1)<STR(sp_rec$,81,1) THEN row_match = 0
+    :         IF flt_s$<>"All" AND RTRIM(STR(sp_rec$,47,10))<>flt_s$ THEN row_match = 0
+    :         IF flt_t$<>"All" AND sv_status$<>flt_t$ THEN row_match = 0
+    :         IF flt_u$<>"All" AND RTRIM(STR(sp_rec$,73,4))<>flt_u$ THEN row_match = 0
+    :         IF flt_sys$<>"All" AND sys_tmp$<>flt_sys$ THEN row_match = 0
+    :         IF flt_d$<>"" THEN DO
+    :             sv_desc$ = STR(sp_rec$,17,30)
+    :             sv_desc$ = $LOWER(sv_desc$)
+    :             flt_d$ = $LOWER(flt_d$)
+    :             sv_nl = LEN(RTRIM(flt_d$))
+    :             MAT SEARCH sv_desc$, == STR(flt_d$,,sv_nl) TO sv_found
+    :             IF sv_found==0 THEN row_match = 0
+    :         END DO
+    :         IF row_match==1 THEN DO
+    :             sv_row++
+    :             sv_sp_entry = VAL(STR(sp_rec$,,4),4)
+    :             SpoolView.grid.Cell(sv_row,1).Text$ = sv_sp_entry
+    :             SpoolView.grid.Cell(sv_row,2).Text$ = RTRIM(STR(sp_rec$,17,30))
+    :             SpoolView.grid.Cell(sv_row,3).Text$ = RTRIM(STR(sp_rec$,47,10))
+    :             SpoolView.grid.Cell(sv_row,4).Text$ = sv_status$
+    :             SpoolView.grid.Cell(sv_row,5).Text$ = sys_tmp$
+    :             SpoolView.grid.Cell(sv_row,6).Text$ = RTRIM(STR(sp_rec$,73,4))
+    :             HEXUNPACK STR(sp_rec$,59,4) TO sv_hex$
+    :             IF STR(sv_hex$,,8)<>"00000000" THEN DO
+    :                 sv_dtreq$ = STR(sv_hex$,7,2) & "/" & STR(sv_hex$,5,2) & "/" & STR(sv_hex$,,4)
+    :             END DO
+    :             ELSE sv_dtreq$ = ""
+    :             SpoolView.grid.Cell(sv_row,7).Text$ = sv_dtreq$
+    :             SpoolView.grid.Cell(sv_row,8).Text$ = RTRIM(STR(sp_rec$,5,12))
+    :             grid_idx(sv_row) = sv_i
+    :             IF MOD(sv_row,2)==0 THEN SpoolView.grid.Cell(sv_row,0).BackColor = &.clrAlt
+    :             IF MOD(sv_row,2)<>0 THEN SpoolView.grid.Cell(sv_row,0).BackColor = &.Default
+    :             SpoolView.grid.Cell(sv_row,1).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,2).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,3).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,4).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,5).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,6).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,7).LeftAction = &.ClickAndDblClick
+    :             SpoolView.grid.Cell(sv_row,1).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,2).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,3).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,4).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,5).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,6).RightAction = &.Click
+    :             SpoolView.grid.Cell(sv_row,7).RightAction = &.Click
+    :             SpoolView.grid.RightSelect = &.Row
+    :         END DO
+    :     END DO
+    : NEXT sv_i
+    : SpoolView.pane1.Text$ = sv_disp & " items"
+    : RETURN
+01921 DEFFN 'sv_set_stat(p_idx,p_stat$)
+    : LOCAL DIM p_time
+    : DATA LOAD BU T#gb_h(213),(p_idx*128)sp_rec$
+    : STR(sp_rec$,57,1) = p_stat$
+    : STR(sp_rec$,63,4) = todayp$
+    : CONVERT STR(TIME,,6) TO p_time
+    : PACK(######) STR(sp_rec$,70,3) FROM p_time
+    : STR(sp_rec$,77,4) = u6$(8)
+    : DATA SAVE BU T#gb_h(213),(p_idx*128)sp_rec$
+    : $OPEN #gb_h(213)
+    : DATA SAVE BU T#gb_h(213),(p_idx*128)sp_rec$
+    : $CLOSE #gb_h(213)
+    : RETURN
+01922 DEFFN 'sv_build_temp_file()
+    : LOCAL DIM ch$1,buf_pos,bytes,sv_path$80,sv_tmpdir$260,sv_file,sv_flen
+    : $DECLARE 'sv_creat(STR(),INT())="._lcreat"
+    : $DECLARE 'sv_write(INT(),DIM(),INT())="_lwrite"
+    : $DECLARE 'sv_close(INT())="_lclose"
+    : $DECLARE 'sv_getenv(STR(),RETURN STR(),INT())=".GetEnvironmentVariableA"
+    : sv_tmp_path$ = " "
+    : sv_path$ = RTRIM(spool_abs$) & "/" & RTRIM(sel_file$)
+    : 'sv_getenv("TEMP",sv_tmpdir$,260)
+    : IF sv_tmpdir$==" " THEN sv_tmpdir$ = "C:\Windows\Temp"
+    : sv_tmp_path$ = RTRIM(sv_tmpdir$) & "\" & RTRIM(sel_file$) & ".txt"
+    : buf$ = ALL(HEX(00))
+    : buf_pos = 1
+    : OPEN #8,sv_path$,"r"
+    : REPEAT
+    :     bytes = READ #8,ch$
+    :     IF ch$==HEX(0A) THEN DO
+    :         IF buf_pos<64998 THEN DO
+    :             STR(buf$,buf_pos,2) = HEX(0D0A)
+    :             buf_pos = buf_pos+2
+    :         END DO
+    :     END DO
+    :     IF ch$<>HEX(0A) AND ch$<>HEX(0D) THEN DO
+    :         IF buf_pos<64999 THEN DO
+    :             STR(buf$,buf_pos,1) = ch$
+    :             buf_pos = buf_pos+1
+    :         END DO
+    :     END DO
+    : UNTIL END
+    : CLOSE #8
+    : sv_flen = buf_pos-1
+    : sv_file = 'sv_creat(sv_tmp_path$,0)
+    : IF sv_file<> -1 THEN DO
+    :     'sv_write(sv_file,buf$,sv_flen)
+    :     'sv_close(sv_file)
+    : END DO
+    : IF sv_file== -1 THEN sv_tmp_path$ = " "
+    : RETURN
+01923 DEFFN 'sv_print_spool_file()
+    : LOCAL DIM sv_printbuf$1000,sv_filepos,sv_nextpos,sv_lppos,sv_endpos,sv_q9,sv_eof
+    : IF sv_sel_printer$<>" " AND RTRIM(sel_file$)<>" " THEN DO
+    :     DATA LOAD DC OPEN T#gb_h(212),sel_file$
+    :     ERROR DO
+    :         REM cannot open spool file - silently ignore
+    :     END DO
+    :     ELSE DO
+    :         SELECT PRINT <sv_sel_printer$>(0)
+    :         sv_filepos = 0
+    :         sv_eof = 0
+    :         REPEAT
+    :             DATA LOAD BU T#gb_h(212),(sv_filepos,sv_nextpos)sv_printbuf$
+    :             IF sv_filepos==sv_nextpos THEN sv_eof = 1
+    :             IF sv_eof==0 THEN DO
+    :                 sv_lppos = 1
+    :                 sv_endpos = sv_nextpos-sv_filepos
+    :                 REPEAT
+    :                     sv_q9 = POS(STR(sv_printbuf$,sv_lppos,sv_endpos) == HEX(0A))
+    :                     IF sv_q9>0 THEN DO
+    :                         IF sv_q9==1 THEN PRINT
+    :                         ELSE PRINT STR(sv_printbuf$,sv_lppos,sv_q9-1)
+    :                         sv_endpos -= sv_q9
+    :                         sv_lppos += sv_q9
+    :                     END DO
+    :                 UNTIL sv_q9==0 OR sv_endpos<=0
+    :                 IF sv_endpos>0 THEN PRINT STR(sv_printbuf$,sv_lppos,sv_endpos);
+    :                 sv_filepos = sv_nextpos
+    :             END DO
+    :         UNTIL sv_eof==1
+    :         $REWIND <sv_sel_printer$>
+    :         DATA SAVE DC CLOSE #gb_h(212)
+    :         IF sel_stat$=="ON QUEUE" THEN GOSUB 'sv_set_stat(sel_spool_idx,"3")
+    :     END DO
+    : END DO
+    : RETURN

@@ -1,0 +1,295 @@
+01000 REM Stock Display - Forms based replacement for PF/DISP
+    : REM Version - 2026-04-08a - Initial first draft
+    : REM Latest - tabbed form with Summary, BOM, Locations
+    : REM Local program variables (prefix dp_ to avoid clashing with ERP globals)
+    : DIM dp_result, dp_done, dp_row
+    : DIM dp_part$32, dp_desc$40, dp_qty_str$20
+    : DIM dp_exl_key$64, dp_exl_rec$512
+    : DIM dp_loc_rec$3072, dp_locn_num
+    : DIM sv_priority$1
+01005 sv_priority$ = u6$(1)
+    : pf_locn = 0
+01011 - DEFFORM StockDisp()=\
+          {.form,.form$,.Style=0x50c000c4,.Width=870,.Height=495,.Text$="Stock Display",.Id=1024},\
+          {.btnExit,.button$,.Style=0x50010001,.Left=814,.Top=5,.Width=50,.Height=14,.Text$="Exit",.__Anchor=5,.Id=1,.Font=.SegoeUI},\
+          {.lblPart,.static$,.Style=0x50000000,.Left=5,.Top=8,.Width=42,.Height=13,.Text$="Part No:",.Font=.SegoeUI},\
+          {.txtPart,.edit$,.Style=0x50810080,.Left=50,.Top=5,.Width=90,.Height=14,.Font=.MonoFont,.Id=1100},\
+          {.btnFind,.button$,.Style=0x50010000,.Left=144,.Top=5,.Width=45,.Height=14,.Text$="Find",.Id=1101,.Font=.SegoeUI},\
+          {.btnNext,.button$,.Style=0x50010000,.Left=192,.Top=5,.Width=45,.Height=14,.Text$="Next",.Id=1102,.Font=.SegoeUI},\
+          {.btnPrev,.button$,.Style=0x50010000,.Left=240,.Top=5,.Width=45,.Height=14,.Text$="Prev",.Id=1103,.Font=.SegoeUI},\
+          {.lblDesc,.static$,.Style=0x50000000,.Left=295,.Top=8,.Width=455,.Height=13,.Text$="",.Font=.SegoeUI},\
+          {.tabMain,.tabbed$,.Style=0x500100C0,.Left=5,.Top=23,.Width=858,.Height=443,.__Anchor=15,.Id=1025,\
+              .Summary={.Text$="Summary"},\
+              .BOM={.Text$="Bill of Materials"},\
+              .Locations={.Text$="Locations"}},\
+          {.lblActualLbl,.static$,.Style=0x50000000,.Left=15,.Top=48,.Width=85,.Height=13,.Text$="Actual Stock:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblActual,.static$,.Style=0x50000002,.Left=100,.Top=48,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1200},\
+          {.lblAllocLbl,.static$,.Style=0x50000000,.Left=215,.Top=48,.Width=80,.Height=13,.Text$="Allocated:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblAlloc,.static$,.Style=0x50000002,.Left=300,.Top=48,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1201},\
+          {.lblFreeLbl,.static$,.Style=0x50000000,.Left=15,.Top=68,.Width=85,.Height=13,.Text$="Free Stock:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblFree,.static$,.Style=0x50000002,.Left=100,.Top=68,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1202},\
+          {.lblBOLbl,.static$,.Style=0x50000000,.Left=215,.Top=68,.Width=80,.Height=13,.Text$="Back Orders:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblBO,.static$,.Style=0x50000002,.Left=300,.Top=68,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1203},\
+          {.lblFOLbl,.static$,.Style=0x50000000,.Left=15,.Top=88,.Width=85,.Height=13,.Text$="Fwd Orders:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblFO,.static$,.Style=0x50000002,.Left=100,.Top=88,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1204},\
+          {.lblPOLbl,.static$,.Style=0x50000000,.Left=215,.Top=88,.Width=80,.Height=13,.Text$="P.O. Qty:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblPO,.static$,.Style=0x50000002,.Left=300,.Top=88,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1205},\
+          {.lblUomLbl,.static$,.Style=0x50000000,.Left=15,.Top=108,.Width=85,.Height=13,.Text$="Unit of Meas:",.Parent=.tabMain,.Page=.Summary,.Font=.SegoeUI},\
+          {.lblUom,.static$,.Style=0x50000000,.Left=100,.Top=108,.Width=80,.Height=13,.Text$="",.Parent=.tabMain,.Page=.Summary,.Font=.MonoFont,.Id=1206},\
+          {.gridBOM,.KCMLgrid$,.Style=0x50010030,.Left=8,.Top=41,.Width=844,.Height=418,.Parent=.tabMain,.Page=.BOM,.Id=1300,.Rows=1,.Cols=3,.FixedRows=1,.Font=.MonoFont},\
+          {.gridLoc,.KCMLgrid$,.Style=0x50010030,.Left=8,.Top=41,.Width=844,.Height=418,.Parent=.tabMain,.Page=.Locations,.Id=1400,.Rows=1,.Cols=5,.FixedRows=1,.Font=.MonoFont},\
+          {.pane1,.status$,.Width=500,.Style=0x50000000},\
+          {.SegoeUI,.dlgfont$,.Name$="Segoe UI",.Size=10},\
+          {.MonoFont,.dlgfont$,.Name$="Consolas",.Size=10}
+    : REM
+    : + DEFEVENT StockDisp.Enter()
+    :     LOCAL DIM sv_i
+    :     .form.Text$ = "Stock Display [08-Apr-26a]"
+    :     REM BOM grid headings
+    :     .gridBOM.Cell(0,1).ColWidth = 100
+    :     .gridBOM.Cell(0,1).Heading$ = "Component"
+    :     .gridBOM.Cell(0,2).ColWidth = 60
+    :     .gridBOM.Cell(0,2).Heading$ = "Qty/Assembly"
+    :     .gridBOM.Cell(0,3).ColWidth = 30
+    :     .gridBOM.Cell(0,3).Heading$ = "Type"
+    :     REM Locations grid headings
+    :     .gridLoc.Cell(0,1).ColWidth = 40
+    :     .gridLoc.Cell(0,1).Heading$ = "Locn"
+    :     .gridLoc.Cell(0,2).ColWidth = 80
+    :     .gridLoc.Cell(0,2).Heading$ = "Actual"
+    :     .gridLoc.Cell(0,3).ColWidth = 80
+    :     .gridLoc.Cell(0,3).Heading$ = "Allocated"
+    :     .gridLoc.Cell(0,4).ColWidth = 80
+    :     .gridLoc.Cell(0,4).Heading$ = "Free"
+    :     .gridLoc.Cell(0,5).ColWidth = 80
+    :     .gridLoc.Cell(0,5).Heading$ = "P.O. Qty"
+    :     REM If a part is already in context from ERP, display it immediately
+    :     IF pf_p1$<>" " THEN GOSUB 'dp_load_part()
+    :     .pane1.Text$ = "Enter a part number and click Find"
+    : END EVENT
+    : REM
+    : + DEFEVENT StockDisp.btnFind.Click()
+    :     LOCAL DIM dp_search$32
+    :     dp_search$ = RTRIM(.txtPart.Text$)
+    :     IF dp_search$==" " THEN DO
+    :         .pane1.Text$ = "Enter a part number first"
+    :         RETURN
+    :     END DO
+    :     GOSUB '120(dp_search$)
+    :     IF pf_p1$==" " THEN DO
+    :         .pane1.Text$ = "Part not found: " & dp_search$
+    :         RETURN
+    :     END DO
+    :     GOSUB 'read_stock(pf_p1$,FALSE)
+    :     pf_q(3) -= pf_q(8)
+    :     GOSUB 'dp_load_part()
+    : END EVENT
+    : REM
+    : + DEFEVENT StockDisp.btnNext.Click()
+    :     IF pf_p1$==" " THEN DO
+    :         .pane1.Text$ = "No current part - use Find first"
+    :         RETURN
+    :     END DO
+    :     GOSUB 'dp_next()
+    : END EVENT
+    : REM
+    : + DEFEVENT StockDisp.btnPrev.Click()
+    :     IF pf_p1$==" " THEN DO
+    :         .pane1.Text$ = "No current part - use Find first"
+    :         RETURN
+    :     END DO
+    :     GOSUB 'dp_prev()
+    : END EVENT
+    : REM
+    : + DEFEVENT StockDisp.tabMain.BOM.Enter()
+    :     GOSUB 'dp_populate_bom()
+    : END EVENT
+    : REM
+    : + DEFEVENT StockDisp.tabMain.Locations.Enter()
+    :     GOSUB 'dp_populate_locs()
+    : END EVENT
+    : FORM END
+01020 dp_result = StockDisp.Open()
+01900 REM End of program - restore priority and close modules
+    : u6$(1) = sv_priority$
+    : pf_srch_acc$ = ALL(HEX(FF))
+    : pf_srch_selected_locn = 0
+    : pf_srch_locn = 0
+    : pf_srch_allow_locn_chg = FALSE
+    : IF NOT BOOL(ex_open) AND BOOL(ex_ok) THEN GOSUB 'close_bom()
+    : IF NOT BOOL(pc_open) AND BOOL(pc_ok) THEN GOSUB 'close_purchase_control()
+    : IF NOT BOOL(oe_open) AND BOOL(oe_ok) THEN GOSUB 'close_order_entry()
+    : IF NOT BOOL(wo_open) AND BOOL(wo_ok) THEN GOSUB 'close_works_orders()
+    : IF NOT BOOL(mr_open) AND BOOL(mr_ok) THEN GOSUB 'close_mrp()
+    : IF pf_rsys$<>" " THEN 1910
+    : GOSUB 'mess_box("Returning to menu",0)
+    : LOAD "PF/START" 1000
+01910 q6$ = pf_rsys$ & "/MENU"
+    : ac_code$ = sv_ac_code$
+    : ac_ledtype$ = sv_ac_ledtype$
+    : LOAD q6$ 1000 BEG 2020
+01920 DEFFN 'dp_load_part()
+    : REM Update navigation bar and summary tab with current pf_p1$ / pf_q() data
+    : LOCAL DIM dp_q_img$20
+    : StockDisp.txtPart.Text$ = RTRIM(pf_p1$)
+    : StockDisp.lblDesc.Text$ = RTRIM(STR(pf_rec$,pf_m1(4),pf_m2(4)))
+    : CONVERT pf_q(1) TO dp_q_img$,(########.##)
+    : StockDisp.lblActual.Text$ = LTRIM(dp_q_img$)
+    : CONVERT pf_q(2) TO dp_q_img$,(########.##)
+    : StockDisp.lblAlloc.Text$ = LTRIM(dp_q_img$)
+    : CONVERT pf_q(3) TO dp_q_img$,(########.##)
+    : StockDisp.lblFree.Text$ = LTRIM(dp_q_img$)
+    : CONVERT pf_q(4) TO dp_q_img$,(########.##)
+    : StockDisp.lblBO.Text$ = LTRIM(dp_q_img$)
+    : CONVERT pf_q(5) TO dp_q_img$,(########.##)
+    : StockDisp.lblFO.Text$ = LTRIM(dp_q_img$)
+    : CONVERT pf_q(6) TO dp_q_img$,(########.##)
+    : StockDisp.lblPO.Text$ = LTRIM(dp_q_img$)
+    : StockDisp.lblUom.Text$ = RTRIM(STR(pf_rec$,pf_m1(2),pf_m2(2)))
+    : StockDisp.pane1.Text$ = RTRIM(pf_p1$) & " - " & RTRIM(STR(pf_rec$,pf_m1(4),pf_m2(4)))
+    : REM Clear grids so they reload fresh when tab is opened
+    : StockDisp.gridBOM.Rows = 1
+    : StockDisp.gridLoc.Rows = 1
+    : RETURN
+01921 DEFFN 'dp_next()
+    : REM Navigate to the next part in the stock file (adapted from NEXT() in Disp.kcml)
+    : LOCAL DIM dp_tmp_rec$3072, dp_retry, dp_nav_ok
+    : GOSUB '120(STR(pf_rec$,pf_m1(1),pf_m2(1)))
+    : GOSUB 'ki_start(gb_h(51),pf_p1$,1)
+    : dp_nav_ok = 0
+    : REPEAT
+    :     dp_retry = 0
+    :     GOSUB 'ki_read_next(gb_h(51),1,SYM(dp_tmp_rec$))
+    :     IF ki_status==0 THEN DO
+    :         IF pf_p1$==STR(dp_tmp_rec$,pf_m1(1),pf_m2(1)) THEN DO
+    :             dp_retry = 1
+    :         END DO
+    :         ELSE DO
+    :             pf_rec$ = dp_tmp_rec$
+    :             GOSUB '120(STR(pf_rec$,pf_m1(1),pf_m2(1)))
+    :             GOSUB 'unpack_stock()
+    :             pf_q(3) -= pf_q(8)
+    :             GOSUB 'dp_load_part()
+    :             dp_nav_ok = 1
+    :             ki_status = 0
+    :         END DO
+    :     END DO
+    :     ELSE DO
+    :         IF ki_status==2 THEN DO
+    :             StockDisp.pane1.Text$ = "End of stock file reached"
+    :             GOSUB 'ki_start(gb_h(51),pf_p1$,-1)
+    :         END DO
+    :         dp_retry = 0
+    :     END DO
+    : UNTIL NOT BOOL(dp_retry)
+    : RETURN
+01922 DEFFN 'dp_prev()
+    : REM Navigate to the previous part in the stock file (adapted from PREV() in Disp.kcml)
+    : LOCAL DIM dp_tmp_rec$3072, dp_retry, dp_nav_ok
+    : GOSUB '120(STR(pf_rec$,pf_m1(1),pf_m2(1)))
+    : GOSUB 'ki_start(gb_h(51),pf_p1$,-1)
+    : dp_nav_ok = 0
+    : REPEAT
+    :     dp_retry = 0
+    :     GOSUB 'ki_read_next(gb_h(51),-1,SYM(dp_tmp_rec$))
+    :     IF ki_status==0 THEN DO
+    :         IF pf_p1$==STR(dp_tmp_rec$,pf_m1(1),pf_m2(1)) THEN DO
+    :             dp_retry = 1
+    :         END DO
+    :         ELSE DO
+    :             pf_rec$ = dp_tmp_rec$
+    :             GOSUB '120(STR(pf_rec$,pf_m1(1),pf_m2(1)))
+    :             GOSUB 'unpack_stock()
+    :             pf_q(3) -= pf_q(8)
+    :             GOSUB 'dp_load_part()
+    :             dp_nav_ok = 1
+    :             ki_status = 0
+    :         END DO
+    :     END DO
+    :     ELSE DO
+    :         IF ki_status==2 THEN DO
+    :             StockDisp.pane1.Text$ = "Start of stock file reached"
+    :             GOSUB 'ki_start(gb_h(51),pf_p1$,1)
+    :         END DO
+    :         dp_retry = 0
+    :     END DO
+    : UNTIL NOT BOOL(dp_retry)
+    : RETURN
+01923 DEFFN 'dp_populate_bom()
+    : REM Populate BOM grid from gb_h(75) key index 1 (assembly as key)
+    : REM Components - ex_k1(1)/pf_b(9)=part, ex_k1(2)/ex_k2(2)=type(skip "T"), exl_val(1)=qty
+    : LOCAL DIM dp_bom_key$64, dp_bom_row, dp_bom_done, dp_bom_qty$20
+    : StockDisp.gridBOM.Rows = 1
+    : IF pf_p1$==" " THEN DO
+    :     StockDisp.pane1.Text$ = "No part loaded"
+    :     RETURN
+    : END DO
+    : GOSUB 'read_ex_header(pf_p1$,FALSE)
+    : IF ki_status<>0 THEN DO
+    :     StockDisp.pane1.Text$ = "No BOM found for " & RTRIM(pf_p1$)
+    :     RETURN
+    : END DO
+    : dp_bom_key$ = ALL(HEX(00))
+    : STR(dp_bom_key$,1,pf_b(9)) = pf_p1$
+    : GOSUB 'ki_start(gb_h(75),dp_bom_key$,1)
+    : dp_bom_row = 1
+    : dp_bom_done = 0
+    : REPEAT
+    :     GOSUB 'ki_read_next(gb_h(75),1,SYM(dp_exl_rec$))
+    :     IF ki_status<>0 THEN dp_bom_done = 1
+    :     IF ki_status==0 AND STR(ki_key$,1,pf_b(9))<>STR(pf_p1$,,pf_b(9)) THEN dp_bom_done = 1
+    :     IF dp_bom_done==0 THEN DO
+    :         IF STR(dp_exl_rec$,ex_k1(2),ex_k2(2))<>"T" THEN DO
+    :             GOSUB 'unpack_ex_entry()
+    :             dp_bom_row++
+    :             StockDisp.gridBOM.Rows = dp_bom_row
+    :             StockDisp.gridBOM.Cell(dp_bom_row,1).Text$ = RTRIM(STR(dp_exl_rec$,ex_k1(1),pf_b(9)))
+    :             CONVERT exl_val(1) TO dp_bom_qty$,(########.###)
+    :             StockDisp.gridBOM.Cell(dp_bom_row,2).Text$ = LTRIM(dp_bom_qty$)
+    :             StockDisp.gridBOM.Cell(dp_bom_row,3).Text$ = RTRIM(exl_type$(1))
+    :             StockDisp.gridBOM.Cell(dp_bom_row,1).LeftAction = &.Click
+    :             IF MOD(dp_bom_row,2)==0 THEN StockDisp.gridBOM.Cell(dp_bom_row,0).BackColor = &.Default
+    :         END DO
+    :     END DO
+    : UNTIL dp_bom_done<>0
+    : StockDisp.pane1.Text$ = RTRIM(pf_p1$) & " - " & (dp_bom_row-1) & " BOM lines"
+    : RETURN
+01924 DEFFN 'dp_populate_locs()
+    : REM Populate locations grid from gb_h(52) key index 2 (part+locn as key)
+    : LOCAL DIM dp_loc_key$64, dp_loc_row, dp_loc_done, dp_loc_qty$20, dp_loc_num$10
+    : StockDisp.gridLoc.Rows = 1
+    : IF pf_p1$==" " THEN DO
+    :     StockDisp.pane1.Text$ = "No part loaded"
+    :     RETURN
+    : END DO
+    : dp_loc_key$ = ALL(HEX(00))
+    : STR(dp_loc_key$,1,pf_b(9)) = pf_p1$
+    : GOSUB 'ki_start(gb_h(52),dp_loc_key$,2)
+    : dp_loc_row = 1
+    : dp_loc_done = 0
+    : REPEAT
+    :     GOSUB 'ki_read_next(gb_h(52),2,SYM(dp_loc_rec$))
+    :     IF ki_status<>0 THEN dp_loc_done = 1
+    :     IF ki_status==0 AND STR(ki_key$,1,pf_b(9))<>STR(pf_p1$,,pf_b(9)) THEN dp_loc_done = 1
+    :     IF dp_loc_done==0 THEN DO
+    :         pf_locn = FLD(STR(ki_key$,pf_b(9)+1,2).gb_pack_num2)
+    :         GOSUB 'read_location(pf_p1$,pf_locn,FALSE)
+    :         pf_locq(3) -= pf_locq(8)
+    :         dp_loc_row++
+    :         StockDisp.gridLoc.Rows = dp_loc_row
+    :         CONVERT pf_locn TO dp_loc_num$,(####)
+    :         StockDisp.gridLoc.Cell(dp_loc_row,1).Text$ = LTRIM(dp_loc_num$)
+    :         CONVERT pf_locq(1) TO dp_loc_qty$,(########.##)
+    :         StockDisp.gridLoc.Cell(dp_loc_row,2).Text$ = LTRIM(dp_loc_qty$)
+    :         CONVERT pf_locq(2) TO dp_loc_qty$,(########.##)
+    :         StockDisp.gridLoc.Cell(dp_loc_row,3).Text$ = LTRIM(dp_loc_qty$)
+    :         CONVERT pf_locq(3) TO dp_loc_qty$,(########.##)
+    :         StockDisp.gridLoc.Cell(dp_loc_row,4).Text$ = LTRIM(dp_loc_qty$)
+    :         CONVERT pf_locq(6) TO dp_loc_qty$,(########.##)
+    :         StockDisp.gridLoc.Cell(dp_loc_row,5).Text$ = LTRIM(dp_loc_qty$)
+    :         IF MOD(dp_loc_row,2)==0 THEN StockDisp.gridLoc.Cell(dp_loc_row,0).BackColor = &.Default
+    :     END DO
+    : UNTIL dp_loc_done<>0
+    : pf_locn = 0
+    : StockDisp.pane1.Text$ = RTRIM(pf_p1$) & " - " & (dp_loc_row-1) & " locations"
+    : RETURN

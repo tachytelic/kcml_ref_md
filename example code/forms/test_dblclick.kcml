@@ -1,0 +1,42 @@
+01000 REM Test form - grid LeftDblClick investigation
+    : DIM result
+    : REM
+01010 - DEFFORM DblClickTest()=\
+          {.form,.form$,.Style=0x50c000c4,.Width=500,.Height=300,.Text$="DblClick Test"},\
+          {.grid,.KCMLgrid$,.Style=0x50010030,.Left=5,.Top=5,.Width=350,.Height=260,.Id=1000,.Rows=1,.Cols=2,.FixedRows=1,.Font=.GridFont},\
+          {.lblStatus,.static$,.Style=0x50000000,.Left=365,.Top=5,.Width=120,.Height=30,.Id=1001,.Text$="Click a row"},\
+          {.lblDbl,.static$,.Style=0x50000000,.Left=365,.Top=45,.Width=120,.Height=30,.Id=1002,.Text$="DblClick: none"},\
+          {.ok,.button$,.Style=0x50010001,.Left=365,.Top=260,.Width=120,.Height=14,.Text$="Close",.Id=1},\
+          {.GridFont,.dlgfont$,.Name$="Consolas",.Size=10}
+    :     + DEFEVENT DblClickTest.Enter()
+    :         LOCAL DIM sv_r
+    :         .grid.Rows = 6
+    :         .grid.Cell(0,1).ColWidth = 60
+    :         .grid.Cell(0,1).Heading$ = "Entry"
+    :         .grid.Cell(0,2).ColWidth = 250
+    :         .grid.Cell(0,2).Heading$ = "Description"
+    :         .grid.LeftSelect = &.Row
+    :         FOR sv_r = 2 TO 6
+    :             .grid.Cell(sv_r,1).Text$ = sv_r-1
+    :             .grid.Cell(sv_r,2).Text$ = "Test row " & (sv_r-1)
+    :             REM LeftAction is needed for single click - confirmed working
+    :             .grid.Cell(sv_r,1).LeftAction = &.ClickAndDblClick
+    :             .grid.Cell(sv_r,2).LeftAction = &.ClickAndDblClick
+    :         NEXT sv_r
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT DblClickTest.grid.LeftClick()
+    :         LOCAL DIM sv_row
+    :         sv_row = ..CursorRow
+    :         IF sv_row>1 THEN .lblStatus.Text$ = "Click row " & sv_row
+    :     END EVENT
+    :     REM
+    :     + DEFEVENT DblClickTest.grid.LeftDblClk()
+    :         LOCAL DIM sv_row
+    :         sv_row = ..CursorRow
+    :         IF sv_row>1 THEN .lblDbl.Text$ = "DblClick row " & sv_row
+    :     END EVENT
+    :     REM
+    : FORM END DblClickTest
+01019 result = DblClickTest.Open()
+    : $END

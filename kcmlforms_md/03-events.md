@@ -81,7 +81,7 @@ The `+` prefix places the DEFEVENT **inside** the DEFFORM block — this is the 
 |-------|--------------|
 | `LeftClick()` | Left mouse click on a cell |
 | `RightClick()` | Right mouse click on a cell |
-| `LeftDblClick()` | Left double-click on a cell |
+| `LeftDblClk()` | Left double-click on a cell — requires `LeftAction = &.ClickAndDblClick` |
 | `RightDblClick()` | Right double-click on a cell |
 | `RowRequest()` | User has scrolled to last row and `DataPending` is TRUE |
 | `EditRowNotify()` | Row has changed in AutoEdit mode |

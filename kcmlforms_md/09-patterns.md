@@ -325,6 +325,8 @@ The child form can access parent variables (they share the same variable scope i
 | Bare `FormName.Open()` without `result =` | Form opens then immediately closes silently | Always assign: `result = FormName.Open()` |
 | DEFEVENT placed after FORM END (without `+`) | Event never fires | Use `+` prefix inside the DEFFORM block |
 | Missing `LeftAction = &.Click` on cells | Click events not sent | Set per-cell or per-column action |
+| Using `LeftDblClick()` as event name | Double-click never fires | Correct name is `LeftDblClk()` (truncated) |
+| Using `LeftAction = &.Click` with double-click | `LeftDblClk()` never fires | Use `&.ClickAndDblClick` to enable both |
 | Colons inside REM statements | Syntax error | Remove colons from REM text |
 | Blank lines in -p scripts | Silent early termination | Use `: REM` lines for spacing |
 | Updating `grid.Rows` without clearing old cells | Stale data in new rows | Clear with `grid.Rows = 1` before repopulating |

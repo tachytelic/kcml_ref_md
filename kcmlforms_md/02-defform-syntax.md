@@ -51,7 +51,7 @@ Each control is defined as:
 | `.KCMLgrid$` | Grid control (table of cells) |
 | `.checkbox$` | Check box |
 | `.radiobutton$` | Radio button |
-| `.tabcontrol$` | Tab control (multiple pages) |
+| `.tabbed$` | Tab control (multiple pages) — note: NOT `.tabcontrol$` |
 | `.status$` | Status bar pane |
 | `.Menu$` | Menu bar or context menu |
 | `.rtf$` | Rich text (formatted text editor) |

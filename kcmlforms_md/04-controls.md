@@ -293,32 +293,71 @@ A labelled border that visually groups controls.
 
 ---
 
-## Tab Control (`.tabcontrol$`)
+## Tab Control (`.tabbed$`)
 
 Multi-page container. Each page is a separate tab.
 
-### Properties
+**Important:** The correct type token is `.tabbed$`, **not** `.tabcontrol$`. The `.tabcontrol$` entry in the type token table is incorrect.
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `Enabled` | boolean | Enable / disable |
-| `Visible` | boolean | Show / hide |
+### DEFFORM Definition
+
+Pages are defined inline as named sub-properties of the tab control. Controls within pages use `.Parent` and `.Page` to specify placement, with **form-absolute** coordinates (not tab-relative).
+
+```kcml
+{.tabMain,.tabbed$,.Style=0x500100C0,.Left=5,.Top=23,.Width=858,.Height=443,.__Anchor=15,.Id=1025,\
+    .Summary={.Text$="Summary"},\
+    .Details={.Text$="Details"},\
+    .BOM={.Text$="Bill of Materials"}}
+```
+
+Controls placed on a specific tab page:
+
+```kcml
+{.btnOK,.button$,.Left=200,.Top=250,.Width=80,.Height=14,...,.Parent=.tabMain,.Page=.Summary,.Id=1010}
+{.grid,.KCMLgrid$,.Left=8,.Top=41,.Width=844,.Height=418,...,.Parent=.tabMain,.Page=.BOM,.Id=1300,...}
+```
+
+Key points:
+- Page names (`Summary`, `BOM` etc.) must be valid KCML identifiers — no spaces
+- `.Left` / `.Top` on tab child controls are **form-absolute** coordinates, not relative to the tab
+- The tab header takes approximately 18 DLU, so content starts at roughly `Tab.Top + 18`
 
 ### Tab Page Events
 
-Each tab page can have `Enter()` and `Exit()` events:
+Each tab page has `Enter()` and `Exit()` events — the page name from DEFFORM is used directly:
 
 ```kcml
-+ DEFEVENT MyForm.tabMain.tabPage2.Enter()
-    REM user switched to page 2
-    GOSUB 'LOAD_PAGE2_DATA()
++ DEFEVENT MyForm.tabMain.BOM.Enter()
+    GOSUB 'LOAD_BOM_DATA()
+END EVENT
+
++ DEFEVENT MyForm.tabMain.Summary.Enter()
+    REM user switched back to Summary
 END EVENT
 ```
 
 ### Changing the Selected Tab Programmatically
 
 ```kcml
-: .tabMain.CurrentTab = 2    : REM switch to page 2 (0-based)
+: .tabMain.CurrentTab = 2    : REM switch to page index 2 (0-based)
+```
+
+### Real-World Example (from Disp_form.kcml)
+
+```kcml
+{.tabMain,.tabbed$,.Style=0x500100C0,.Left=5,.Top=23,.Width=858,.Height=443,.__Anchor=15,.Id=1025,\
+    .Summary={.Text$="Summary"},\
+    .BOM={.Text$="Bill of Materials"},\
+    .Locations={.Text$="Locations"}}
+
+REM Controls on Summary page (form-absolute coordinates):
+{.lblActual,.static$,.Left=100,.Top=48,.Width=80,.Height=13,...,.Parent=.tabMain,.Page=.Summary}
+{.gridBOM,.KCMLgrid$,.Left=8,.Top=41,.Width=844,.Height=418,...,.Parent=.tabMain,.Page=.BOM,...}
+
+REM DEFEVENT uses the page name from DEFFORM:
++ DEFEVENT StockDisp.tabMain.BOM.Enter()
+    GOSUB 'dp_populate_bom()
+END EVENT
 ```
 
 ---

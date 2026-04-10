@@ -20,6 +20,24 @@ Key DEFFORM properties:
 | `FixedCols` | Number of heading columns (fixed on left) |
 | `Font` | Font for all cells (overridden per-cell if needed) |
 
+### Inline Column Widths and Headings
+
+The Forms Designer also supports defining column widths and heading text directly in the DEFFORM control block using named sub-properties. This avoids the need to set them in the `Enter()` event:
+
+```kcml
+{.gridPartSearch,.KCMLgrid$,.Style=0x50010030,.Left=6,.Top=58,.Width=434,.Height=214,\
+    .Id=1033,.Rows=1,.Cols=3,.FixedRows=1,.Font=.MonoFont,\
+    .Col1={.ColWidth=76,.Col=1},\
+    .Col2={.ColWidth=180,.Col=2},\
+    .Col3={.ColWidth=100,.Col=3}}
+```
+
+Named sub-properties:
+- `.ColN={.ColWidth=nnn,.Col=N}` — sets width of column N
+- `.AnyName={.Row=1,.Col=N,.Text$="Heading"}` — sets heading text for column N (row 1 = fixed heading row)
+
+You can still override these in `Enter()` if needed — set in DEFFORM and set again in code are not exclusive.
+
 ## Cell Addressing
 
 Cells are addressed `Cell(row, col)` — both are **1-based** for data rows/columns. Row 0 and column 0 refer to the heading row and the row-selector column respectively.
@@ -58,7 +76,7 @@ Cells are addressed `Cell(row, col)` — both are **1-based** for data rows/colu
 | `Type$` | string | Cell data type (`"D"` = date, etc.) |
 | `BackColor` | colour ref | Background colour |
 | `ForeColor` | colour ref | Text colour |
-| `LeftAction` | enumeration | Left-click action (`&.Click`, `&.None`) |
+| `LeftAction` | enumeration | Left-click action (`&.Default`, `&.Ignore`, `&.Down`, `&.Click`, `&.ClickAndDblClick`, `&.DisableCursor`) |
 | `RightAction` | enumeration | Right-click action |
 | `LeftSelect` | enumeration | Left-click selection mode (`&.Row`, `&.Cell`, etc.) |
 | `RightSelect` | enumeration | Right-click selection mode |
@@ -111,7 +129,13 @@ END EVENT
 
 ## Click Handling
 
-To detect which row the user clicked, configure `LeftAction` and `LeftSelect` on the cells, then handle the `LeftClick()` event:
+To detect which row the user clicked, configure `LeftAction` and `LeftSelect` on the cells, then handle the `LeftClick()` event.
+
+**`LeftAction` values:**
+- `&.Click` — fires `LeftClick()` on single click
+- `&.ClickAndDblClick` — fires `LeftClick()` on single click AND `LeftDblClk()` on double-click
+- `&.Down` — fires `LeftClick()` on mouse-down (immediate, before release)
+- `&.Ignore` — no click events
 
 ### Configure cells to be clickable (do this in Enter())
 
@@ -134,6 +158,23 @@ To detect which row the user clicked, configure `LeftAction` and `LeftSelect` on
         sel_part$ = ..Cell(row, 1).Text$
         sel_desc$ = ..Cell(row, 2).Text$
     END DO
+END EVENT
+```
+
+### Handle double-click (use `&.ClickAndDblClick` and `LeftDblClk()`)
+
+Note: the event name is `LeftDblClk` — **not** `LeftDblClick`. Using `&.Click` alone will NOT fire the double-click event.
+
+```kcml
+: FOR sv_row = 2 TO .grid.Rows
+:     .grid.Cell(sv_row, 1).LeftAction = &.ClickAndDblClick
+:     .grid.Cell(sv_row, 2).LeftAction = &.ClickAndDblClick
+: NEXT sv_row
+
++ DEFEVENT MyForm.grid.LeftDblClk()
+    LOCAL DIM row
+    row = ..CursorRow
+    IF row > 1 THEN result = DetailForm.Open()
 END EVENT
 ```
 

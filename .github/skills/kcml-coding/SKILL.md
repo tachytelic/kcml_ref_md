@@ -211,7 +211,6 @@ CGI scripts can use `ENV("QUERY_STRING")` to read URL parameters.
 
 **Key CGI notes:**
 - Use `HEX(22)` for quote character in JSON (NOT `CHR$(34)`)
-- **Never put `:` in a REM statement** — KCML parses `:` as a statement separator even inside REM text (syntax error). Use a dash instead of a colon in REM text.
 - Must output `Content-type:` header + blank line before content
 - Cannot use `$END` inside IF blocks to exit early
 
@@ -264,6 +263,42 @@ DIM result$100 : result$ = "Hello" : PRINT result$ : $END
 3. **Write initial code** - Use patterns from this skill
 4. **Execute and verify** - Send to execution server
 5. **Iterate if needed** - Fix errors based on output
+
+## FATAL ERRORS — These Will Always Break Your Code
+
+> These mistakes produce immediate runtime failures. Burn them in. Do not do any of them, ever, in any context.
+
+### 1. COLON INSIDE A REM — THE #1 KILLER
+
+**NEVER write a colon (`:`) anywhere inside a REM statement.** KCML treats `:` as a statement separator even inside comment text, so everything after the colon is executed as code.
+
+```kcml
+REM This breaks: description here   <- KCML runs "description here" as code — syntax error
+REM Ratio is 3:1 in normal cases    <- KCML runs "1 in normal cases" — syntax error
+REM URL is http://host/path         <- KCML runs "//host/path" — syntax error
+```
+
+Always use a dash instead:
+
+```kcml
+REM This works - description here
+REM Ratio is 3-1 in normal cases
+REM URL is http [colon] //host/path
+```
+
+This trips up AI assistants constantly. If you are writing ANY comment, scan it for colons before writing it. Not just URLs — any english text with a colon (e.g. `format: X`, `layout: A+B`, `note: see below`) will break.
+
+### 2. Blank lines in `-p` scripts
+
+A blank line silently terminates execution. Use `: REM` for spacing.
+
+### 3. 4-param KI_OPEN
+
+`CALL KI_OPEN handle, stream, file$, mode$` causes S24 panic in KCML 6.x. Use 3-param: `CALL KI_OPEN handle, file$, mode$ TO status`.
+
+### 4. String not DIM'd with size
+
+`DIM name$` is invalid — must be `DIM name$30`. Every string needs a declared size.
 
 ## Common Patterns
 
@@ -774,7 +809,7 @@ END SELECT
 
 ## Source Documentation
 
-Full KCML documentation is in the `kcmlrefman_md/` folder (393 files). KDB/KISAM database documentation is in `kdb_md/` (15 files, tested). Key files:
+Full KCML documentation is in the `kcmlrefman_md/` folder (393 files). KDB/KISAM database documentation is in `kdb_md/` (15 files, tested). KCML Win32 forms documentation is in `kcmlforms_md/`. Key files:
 
 - **DIM.md**, **COM.md** - Variable declarations
 - **FOR.md**, **WHILE.md**, **DO.md**, **REPEAT.md** - Loop constructs

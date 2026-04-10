@@ -4,7 +4,7 @@ kcml_source/
 # Raw KCML vendor documentation and tooling - not for public distribution
 kcmlrefman/
 kcmlforms/
-kdb/
+/kdb/
 kwebserv/
 workbench/
 erp-source-reference/

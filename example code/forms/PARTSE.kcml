@@ -1,0 +1,225 @@
+01000 REM PARTSE - Stock Part Number Search (Forms version)
+    : REM Version - 2026-04-09e - In-memory cache approach
+    : REM Cache layout per slot (80 bytes) - part(16)+desc(30)+pg(4)+qty(12)+price(12)+spare(6)
+    : REM ps_ prefix used throughout to avoid clashing with ERP globals
+    : DIM ps_result, ps_row, ps_si, ps_done, ps_found, ps_match, ps_cnt
+    : DIM ps_srec$3072, ps_part$32, ps_desc_lower$40
+    : DIM ps_pg_str$2000, ps_pg_cnt
+    : DIM ps_tmp_pg$10
+    : DIM ps_part_filter$32, ps_word_filter$40
+    : DIM ps_pg_filter$10, ps_plen, ps_wlen
+    : DIM ps_free_qty$20, ps_sell_price$20
+    : DIM ps_sel_row, ps_sel_part$32, ps_loading
+    : DIM ps_cache$460000, ps_rec_count
+01005 ps_sel_row = 0
+    : ps_sel_part$ = " "
+    : q6$ = " "
+01011 - DEFFORM PartSearch()=\
+          {.form,.form$,.Width=620,.Height=295,.Style=0x50C000C4,.Text$="Part Number Search",.Id=1024},\
+          {.ok,.button$,.Left=562,.Top=2,.Width=50,.Height=14,.Style=0x50010001,.Text$="OK",.__Anchor=5,.Id=1,.Font=.SegoeUI},\
+          {.cancel,.button$,.Left=562,.Top=18,.Width=50,.Height=14,.Style=0x50010000,.Text$="Cancel",.__Anchor=5,.Id=2,.Font=.SegoeUI},\
+          {.btnSearch,.button$,.Left=562,.Top=34,.Width=50,.Height=14,.Style=0x50010000,.Text$="Search",.__Anchor=5,.Id=1010,.Font=.SegoeUI},\
+          {.lblPartNumber,.static$,.Left=6,.Top=4,.Width=97,.Height=13,.Style=0x50000000,.Text$="Part Number Mask:",.Font=.SegoeUI},\
+          {.txtPartMask,.edit$,.Left=108,.Top=2,.Width=100,.Height=14,.Style=0x50810080,.Id=1026,.Font=.SegoeUI},\
+          {.lblSearchWords,.static$,.Left=7,.Top=22,.Width=97,.Height=13,.Style=0x50000000,.Text$="Words to search:",.Font=.SegoeUI},\
+          {.txtWordSearch,.edit$,.Left=108,.Top=20,.Width=100,.Height=14,.Style=0x50810080,.Id=1030,.Font=.SegoeUI},\
+          {.lblProdGrp,.static$,.Left=7,.Top=40,.Width=97,.Height=13,.Style=0x50000000,.Text$="Product Group:",.Font=.SegoeUI},\
+          {.cmbProductGroup,.combobox$,.Left=108,.Top=38,.Width=100,.Height=150,.Style=0x50210103,.Id=1032,.Font=.SegoeUI},\
+          {.gridPartSearch,.KCMLgrid$,.Left=6,.Top=58,.Width=606,.Height=214,.Style=0x50010030,.__Anchor=15,.Id=1033,.Rows=1,.Cols=5,.FixedRows=1,.Font=.MonoFont,\
+              .Col1={.ColWidth=100,.Col=1},\
+              .Col2={.ColWidth=250,.Col=2},\
+              .Col3={.ColWidth=70,.Col=3},\
+              .Col4={.ColWidth=60,.Col=4},\
+              .Col5={.ColWidth=80,.Col=5}},\
+          {.lblDbg,.static$,.Left=212,.Top=2,.Width=345,.Height=13,.Style=0x50000000,.Text$="",.Font=.SegoeUI},\
+          {.pane1,.status$,.Width=400,.Style=0x50000000},\
+          {.SegoeUI,.dlgfont$,.Name$="Segoe UI",.Size=10},\
+          {.MonoFont,.dlgfont$,.Name$="Consolas",.Size=10},\
+          {.clrAlt,.color$,.Red=250,.Green=248,.Blue=248}
+    : REM
+    : + DEFEVENT PartSearch.Enter()
+    :     LOCAL DIM sv_si, sv_tmp_pg$10
+    :     .form.Text$ = "Part Number Search [09-Apr-26e]"
+    :     .txtPartMask.Text$ = ""
+    :     .txtWordSearch.Text$ = ""
+    :     .gridPartSearch.Cell(0,1).Heading$ = "Part Number"
+    :     .gridPartSearch.Cell(0,2).Heading$ = "Description"
+    :     .gridPartSearch.Cell(0,3).Heading$ = "Free Stock"
+    :     .gridPartSearch.Cell(0,4).Heading$ = "Prod Grp"
+    :     .gridPartSearch.Cell(0,5).Heading$ = "Sell Price"
+    :     .gridPartSearch.LeftSelect = &.Row
+    :     .pane1.Text$ = "Loading stock data..."
+    :     GOSUB 'ps_load_cache()
+    :     ps_loading = 1
+    :     .cmbProductGroup.Delete()
+    :     .cmbProductGroup.Add("_ALL")
+    :     FOR sv_si = 1 TO ps_pg_cnt
+    :         sv_tmp_pg$ = RTRIM(STR(ps_pg_str$,(sv_si-1)*10+1,10))
+    :         .cmbProductGroup.Add(sv_tmp_pg$)
+    :     NEXT sv_si
+    :     .cmbProductGroup.SetSelection(0)
+    :     ps_loading = 0
+    :     .pane1.Text$ = "Loaded " & ps_rec_count & " parts - enter criteria to filter"
+    :     GOSUB 'ps_do_search()
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.btnSearch.Click()
+    :     ps_sel_row = 0
+    :     GOSUB 'ps_do_search()
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.txtPartMask.Validate()
+    :     ps_sel_row = 0
+    :     GOSUB 'ps_do_search()
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.txtWordSearch.Validate()
+    :     ps_sel_row = 0
+    :     GOSUB 'ps_do_search()
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.cmbProductGroup.Click()
+    :     IF ps_loading == 0 THEN DO
+    :         ps_sel_row = 0
+    :         GOSUB 'ps_do_search()
+    :     END DO
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.gridPartSearch.LeftClick()
+    :     LOCAL DIM sv_r
+    :     sv_r = ..CursorRow
+    :     IF sv_r > 1 THEN DO
+    :         ps_sel_row = sv_r
+    :         ps_sel_part$ = ..Cell(sv_r,1).Text$
+    :         .pane1.Text$ = RTRIM(ps_sel_part$) & " selected - click OK to open"
+    :     END DO
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.ok.Click()
+    :     IF ps_sel_row > 1 THEN q6$ = ps_sel_part$
+    : END EVENT
+    : REM
+    : + DEFEVENT PartSearch.cancel.Click()
+    :     q6$ = " "
+    : END EVENT
+    : FORM END
+01020 ps_result = PartSearch.Open()
+01900 REM Return based on selection
+    : IF q6$<>" " THEN 1910
+    : GOSUB 'mess_box("Returning to menu",0)
+    : LOAD "PF/START" 1000
+01910 REM Part selected - load stock display
+    : LOAD "PF/FORM_DISP" 1000
+01920 DEFFN 'ps_load_cache()
+    : REM Load all stock records into ps_cache$ in one pass
+    : REM Slot layout (80 bytes) - part[0..15] desc[16..45] pg[46..49] qty[50..61] price[62..73] spare[74..79]
+    : REM Also collects unique product groups into ps_pg_str$/ps_pg_cnt
+    : LOCAL DIM sv_i, sv_found, sv_si, sv_offset
+    : ps_rec_count = 0
+    : ps_pg_str$ = ALL(HEX(00))
+    : ps_pg_cnt = 0
+    : GOSUB 'ki_start_beg(gb_h(51),1)
+    : ki_status = 0
+    : REPEAT
+    :     GOSUB 'ki_read_next(gb_h(51),1,SYM(ps_srec$))
+    :     IF ki_status == 0 THEN DO
+    :         ps_rec_count++
+    :         sv_offset = (ps_rec_count - 1) * 80 + 1
+    :         STR(ps_cache$, sv_offset,    16) = STR(ps_srec$, pf_m1(1),  pf_m2(1))
+    :         STR(ps_cache$, sv_offset+16, 30) = STR(ps_srec$, pf_m1(4),  pf_m2(4))
+    :         STR(ps_cache$, sv_offset+46,  4) = STR(ps_srec$, pf_m1(15), pf_m2(15))
+    :         REM Format free qty
+    :         pf_p1$ = RTRIM(STR(ps_srec$, pf_m1(1), pf_m2(1)))
+    :         pf_rec$ = ps_srec$
+    :         GOSUB 'unpack_stock()
+    :         pf_q(3) -= pf_q(8)
+    :         CONVERT pf_q(3) TO ps_free_qty$,(-#######.##)
+    :         ps_free_qty$ = LTRIM(ps_free_qty$)
+    :         MAT SEARCH ps_free_qty$, <>"0" TO sv_i
+    :         IF sv_i > 1 AND STR(ps_free_qty$,sv_i,1) <> "." THEN ps_free_qty$ = STR(ps_free_qty$,sv_i)
+    :         IF sv_i > 1 AND STR(ps_free_qty$,sv_i,1) == "." THEN ps_free_qty$ = STR(ps_free_qty$,sv_i-1)
+    :         STR(ps_cache$, sv_offset+50, 12) = ps_free_qty$
+    :         REM Format sell price
+    :         CONVERT pf_q(9) TO ps_sell_price$,(########.##)
+    :         ps_sell_price$ = LTRIM(ps_sell_price$)
+    :         MAT SEARCH ps_sell_price$, <>"0" TO sv_i
+    :         IF sv_i > 1 AND STR(ps_sell_price$,sv_i,1) <> "." THEN ps_sell_price$ = STR(ps_sell_price$,sv_i)
+    :         IF sv_i > 1 AND STR(ps_sell_price$,sv_i,1) == "." THEN ps_sell_price$ = STR(ps_sell_price$,sv_i-1)
+    :         STR(ps_cache$, sv_offset+62, 12) = ps_sell_price$
+    :         REM Collect unique product groups
+    :         ps_tmp_pg$ = RTRIM(STR(ps_srec$, pf_m1(15), pf_m2(15)))
+    :         IF ps_tmp_pg$ <> " " THEN DO
+    :             sv_found = 0
+    :             FOR sv_si = 1 TO ps_pg_cnt
+    :                 IF RTRIM(STR(ps_pg_str$,(sv_si-1)*10+1,10)) == ps_tmp_pg$ THEN sv_found = 1
+    :             NEXT sv_si
+    :             IF sv_found == 0 AND ps_pg_cnt < 200 THEN DO
+    :                 ps_pg_cnt++
+    :                 STR(ps_pg_str$,(ps_pg_cnt-1)*10+1,10) = ps_tmp_pg$
+    :             END DO
+    :         END DO
+    :     END DO
+    : UNTIL ki_status <> 0
+    : RETURN
+01921 DEFFN 'ps_do_search()
+    : REM Filter ps_cache$ and populate grid - no file I/O
+    : LOCAL DIM sv_i, sv_offset
+    : ps_part_filter$ = $UPPER(RTRIM(PartSearch.txtPartMask.Text$))
+    : ps_word_filter$ = $LOWER(RTRIM(PartSearch.txtWordSearch.Text$))
+    : ps_pg_filter$ = RTRIM(PartSearch.cmbProductGroup.Text$)
+    : IF RTRIM(ps_pg_filter$) == "_ALL" THEN ps_pg_filter$ = " "
+    : ps_plen = LEN(ps_part_filter$)
+    : ps_wlen = LEN(ps_word_filter$)
+    : REM Guard - VAL gives ASCII code of first char; ignore non-printable chars (<=32)
+    : IF ps_plen > 0 AND VAL(STR(ps_part_filter$,1,1),1) <= 32 THEN ps_plen = 0
+    : IF ps_wlen > 0 AND VAL(STR(ps_word_filter$,1,1),1) <= 32 THEN ps_wlen = 0
+    : PartSearch.lblDbg.Text$ = "p=[" & RTRIM(ps_part_filter$) & "] w=[" & RTRIM(ps_word_filter$) & "] pg=[" & RTRIM(ps_pg_filter$) & "]"
+    : PartSearch.gridPartSearch.Rows = 1
+    : ps_row = 1
+    : ps_cnt = 0
+    : ps_done = 0
+    : ps_si = 0
+    : REPEAT
+    :     ps_si++
+    :     sv_offset = (ps_si - 1) * 80 + 1
+    :     ps_part$ = STR(ps_cache$, sv_offset, 16)
+    :     ps_match = 1
+    :     REM Part number prefix filter
+    :     IF ps_plen > 0 AND ps_match == 1 THEN DO
+    :         IF STR(ps_part$,,ps_plen) <> STR(ps_part_filter$,,ps_plen) THEN ps_match = 0
+    :     END DO
+    :     REM Word search in description
+    :     IF ps_wlen > 0 AND ps_match == 1 THEN DO
+    :         ps_desc_lower$ = $LOWER(STR(ps_cache$, sv_offset+16, 30))
+    :         MAT SEARCH ps_desc_lower$, == STR(ps_word_filter$,,ps_wlen) TO ps_found
+    :         IF ps_found == 0 THEN ps_match = 0
+    :     END DO
+    :     REM Product group filter
+    :     IF LEN(RTRIM(ps_pg_filter$)) > 0 AND ps_match == 1 THEN DO
+    :         ps_tmp_pg$ = RTRIM(STR(ps_cache$, sv_offset+46, 4))
+    :         IF ps_tmp_pg$ <> RTRIM(ps_pg_filter$) THEN ps_match = 0
+    :     END DO
+    :     REM Add to grid if matched
+    :     IF ps_match == 1 THEN DO
+    :         ps_cnt++
+    :         ps_row++
+    :         PartSearch.gridPartSearch.Rows = ps_row
+    :         PartSearch.gridPartSearch.Cell(ps_row,1).Text$ = RTRIM(ps_part$)
+    :         PartSearch.gridPartSearch.Cell(ps_row,2).Text$ = RTRIM(STR(ps_cache$, sv_offset+16, 30))
+    :         PartSearch.gridPartSearch.Cell(ps_row,3).Text$ = LTRIM(RTRIM(STR(ps_cache$, sv_offset+50, 12)))
+    :         PartSearch.gridPartSearch.Cell(ps_row,4).Text$ = RTRIM(STR(ps_cache$, sv_offset+46, 4))
+    :         PartSearch.gridPartSearch.Cell(ps_row,5).Text$ = LTRIM(RTRIM(STR(ps_cache$, sv_offset+62, 12)))
+    :         PartSearch.gridPartSearch.Cell(ps_row,1).LeftAction = &.Click
+    :         PartSearch.gridPartSearch.Cell(ps_row,2).LeftAction = &.Click
+    :         PartSearch.gridPartSearch.Cell(ps_row,3).LeftAction = &.Click
+    :         PartSearch.gridPartSearch.Cell(ps_row,4).LeftAction = &.Click
+    :         PartSearch.gridPartSearch.Cell(ps_row,5).LeftAction = &.Click
+    :         IF MOD(ps_row,2)==0 THEN PartSearch.gridPartSearch.Cell(ps_row,0).BackColor = &.clrAlt
+    :         IF ps_cnt >= 500 THEN ps_done = 1
+    :     END DO
+    : UNTIL ps_si >= ps_rec_count OR ps_done <> 0
+    : IF ps_cnt >= 500 THEN PartSearch.pane1.Text$ = "500 results shown - refine search to see more"
+    : IF ps_cnt < 500 THEN PartSearch.pane1.Text$ = ps_cnt & " parts found"
+    : IF ps_cnt == 0 THEN PartSearch.pane1.Text$ = "No parts match - try different criteria"
+    : ps_sel_row = 0
+    : RETURN
