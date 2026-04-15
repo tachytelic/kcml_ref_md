@@ -49,50 +49,52 @@ DIM j1, j2, diff
 ```
 <!-- UNTESTED -->
 
-### R7_DATE2J / R7_J2DATE (Legacy)
+### R7_DATE2J / R7_J2DATE (Legacy — broken in KCML 6.9+)
 
-Legacy CALL functions using `DD/MM/YY` format. Still available for backward compatibility.
+`R7_DATE2J` and `R7_J2DATE` are **C library functions**, not built-in KCML statements. They were provided as part of the KCML runtime library in earlier versions (introduced in KCML 3.00) and are officially marked obsolete due to Y2K issues. In KCML 6.9+ they are no longer reliably available and calls to them will fail — do not use them in new code, and replace any existing calls when migrating to KCML 6.9.
+
+**R7_DATE2J** — converts `DD/MM/YY` (2-digit year only) to Julian integer:
+```kcml
+CALL R7_DATE2J date$ TO julian
+```
+
+**R7_J2DATE** — converts Julian integer to a date string. The second parameter sets output width: 8 = `DD/MM/YY`, 10 = `DD/MM/CCYY`:
+```kcml
+CALL R7_J2DATE julian, 10 TO date$
+```
+
+#### Migration: replacing R7_DATE2J when upgrading to KCML 6.9
+
+ERP date fields are typically stored as `DD/MM/YYYY` (10-char, 4-digit year). R7_DATE2J cannot handle this format anyway (it only accepts 2-digit years), so the correct replacement is to rearrange the string to ISO `YYYY-MM-DD` format and use `CONVERT DATE`.
+
+Pattern verified from production code — handles the common ERP case where a blank/null date is stored as `--/--/----`:
 
 ```kcml
-REM DD/MM/YY to Julian
-DIM julian
-: CALL R7_DATE2J "04/04/26" TO julian
-: PRINT julian
-: $END
+REM oeh_date$ is DD/MM/YYYY (e.g. "15/04/2026") or "--/--/----" if not set
+REM Replaces: CALL R7_DATE2J oeh_date$ TO date_raised
+DIM Date_Raised2$12, date_raised
+: date_raised = 0
+: IF oeh_date$ <> "--/--/----" THEN DO
+:   STR(Date_Raised2$,,4)  = STR(oeh_date$, 7, 4)  : REM YYYY
+:   STR(Date_Raised2$,5,1) = "-"
+:   STR(Date_Raised2$,6,2) = STR(oeh_date$, 4, 2)  : REM MM
+:   STR(Date_Raised2$,8,1) = "-"
+:   STR(Date_Raised2$,9,2) = STR(oeh_date$,,2)      : REM DD
+:   CONVERT DATE Date_Raised2$ TO date_raised
+: END DO
 ```
-Output: `2461135`
+
+`Date_Raised2$` ends up as `YYYY-MM-DD` which `CONVERT DATE` accepts directly. `date_raised` is left as 0 if the field was blank.
+
+For the reverse direction (Julian to `DD/MM/YYYY`), replace `CALL R7_J2DATE j, 10 TO date$` with:
 
 ```kcml
-REM Julian to DD/MM/CCYY
-DIM date$12
-: CALL R7_J2DATE 2461135, 10 TO date$
-: PRINT date$
-: $END
+REM Replaces: CALL R7_J2DATE julian, 10 TO date$
+REM Produces DD/MM/YYYY from a Julian integer
+DIM iso$12, date$12
+: CONVERT DATE julian TO iso$              : REM -> YYYY-MM-DD
+: date$ = STR(iso$,9,2) & "/" & STR(iso$,6,2) & "/" & STR(iso$,1,4)
 ```
-Output: `04/04/2026`
-
-Note: The second parameter to R7_J2DATE is the output width (8 for DD/MM/YY, 10 for DD/MM/CCYY).
-
-```kcml
-REM Legacy: display today as DD/MM/CCYY
-DIM j, d$12
-: j = #DATE
-: CALL R7_J2DATE j, 10 TO d$
-: PRINT d$
-: $END
-```
-<!-- UNTESTED -->
-
-```kcml
-REM Legacy: convert user-entered DD/MM/YY to Julian then add 30 days
-DIM j, due$12, entry$8
-: entry$ = "01/04/26"
-: CALL R7_DATE2J entry$ TO j
-: CALL R7_J2DATE j + 30, 10 TO due$
-: PRINT "Due: "; due$
-: $END
-```
-<!-- UNTESTED -->
 
 ## Comparison
 
@@ -274,14 +276,16 @@ DIM t, hrs, mins
 
 ---
 
-## Century Handling (R7_DATE2J)
+## Century Handling (R7_DATE2J — KCML 6 only)
+
+Applicable only when R7_DATE2J is still in use (KCML 6 and earlier). In KCML 6.9+ this function is unavailable — see the migration pattern above instead.
 
 For legacy R7_DATE2J with 2-digit years, byte 48 of `$OPTIONS RUN` controls the century cutoff:
 - If YY < cutoff value → 2000s
 - If YY >= cutoff value → 1900s
-- Default cutoff: HEX(20) = 32 (so 00-31 → 2000s, 32-99 → 1900s)
+- Default cutoff: HEX(20) = 32 (so 00–31 → 2000s, 32–99 → 1900s)
 
 ```kcml
-REM Change cutoff to 1950 (00-49 → 2000s, 50-99 → 1900s)
+REM Change cutoff to 1950 (00-49 -> 2000s, 50-99 -> 1900s)
 STR($OPTIONS RUN, 48, 1) = HEX(32)
 ```
