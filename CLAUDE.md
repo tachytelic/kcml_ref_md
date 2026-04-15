@@ -18,16 +18,10 @@ KCML runs locally. Always run tests in the **foreground** — background process
 
 ```bash
 # Write script to a temp file, then run:
-LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so \
-MAC_ADDRESS="00:0c:44:88:7a:4c" \
-SPOOF_HOSTNAME="640UK" \
 /usr/lib/kcml/kcml -p /tmp/test.kcml
 ```
 
-Required environment variables (must be set every invocation):
-- `LD_PRELOAD=/usr/lib/kcml/ioctl_preload.so`
-- `MAC_ADDRESS="00:0c:44:88:7a:4c"`
-- `SPOOF_HOSTNAME="640UK"`
+No environment variables required — this is a fully licensed system.
 
 ---
 
