@@ -36,22 +36,34 @@ DIM j, d$12
 : PRINT d$
 : $END
 ```
-<!-- UNTESTED -->
 
 ```kcml
 REM How many days between two dates?
 DIM j1, j2, diff
 : CONVERT DATE "2026-01-01" TO j1
-: CONVERT DATE "2026-04-07" TO j2
+: CONVERT DATE "2026-04-15" TO j2
 : diff = j2 - j1
-: PRINT diff               : REM 96
+: PRINT diff               : REM 104
 : $END
 ```
-<!-- UNTESTED -->
+REM Verified by execution: result = 104
 
 ### R7_DATE2J / R7_J2DATE (Legacy — broken in KCML 6.9+)
 
-`R7_DATE2J` and `R7_J2DATE` are **Kerridge-proprietary routines** from the Rev7/Wang BASIC-2 compatibility layer, shipped as compiled routines in the KCML runtime (not standard C library functions). The `R7_` prefix denotes Rev7 heritage. They are called with `CALL` rather than as built-in statements, introduced in KCML 3.00. They are officially marked obsolete due to Y2K issues, and in KCML 6.9+ the library containing them is no longer available — calls will fail. Do not use them in new code, and replace any existing calls when migrating to KCML 6.9.
+`R7_DATE2J` and `R7_J2DATE` are **Kerridge-proprietary routines** from the Rev7/Wang BASIC-2 compatibility layer. They are called with `CALL`, introduced in KCML 3.00.
+
+**Internal implementation (from debug binary analysis of KCML 7):**
+- Implemented in `uf_r7.c` as KCML User Functions (UF), not as wrappers around Unix C library calls
+- `R7_DATE2J` calls an internal `GetJulianDate(day, month, year)` function from `jdate.h` — pure arithmetic, no OS date syscalls (`time()`, `localtime()`, `mktime()` etc. are never called)
+- `R7_J2DATE` uses internal `pnum()` formatting helpers to write day/month/year back to the output string
+- strace confirms: no OS-level date/time syscalls occur before the crash
+
+**Why they crash in KCML 6.9:**
+The routine names are present in the KCML 6.9 dispatch table (so the symbol resolves — a completely unknown `CALL` gives P38.001 at resolve time), but the underlying UF handler was removed. The crash happens at runtime when dispatch reaches a null/broken handler:
+- `CALL R7_DATE2J` → **S24.054** panic, exit 113
+- `CALL R7_J2DATE` → **S24.060** panic, exit 113
+
+**Why they were deprecated:** They only handled 2-digit years (`DDMMYY`), with century windowing controlled by `$OPTIONS RUN` byte 48. This is inherently Y2K-unsafe.
 
 **R7_DATE2J** — converts `DD/MM/YY` (2-digit year only) to Julian integer:
 ```kcml
