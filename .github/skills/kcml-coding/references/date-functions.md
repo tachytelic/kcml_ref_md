@@ -51,7 +51,7 @@ DIM j1, j2, diff
 
 ### R7_DATE2J / R7_J2DATE (Legacy — broken in KCML 6.9+)
 
-`R7_DATE2J` and `R7_J2DATE` are **C library functions**, not built-in KCML statements. They were provided as part of the KCML runtime library in earlier versions (introduced in KCML 3.00) and are officially marked obsolete due to Y2K issues. In KCML 6.9+ they are no longer reliably available and calls to them will fail — do not use them in new code, and replace any existing calls when migrating to KCML 6.9.
+`R7_DATE2J` and `R7_J2DATE` are **Kerridge-proprietary routines** from the Rev7/Wang BASIC-2 compatibility layer, shipped as compiled routines in the KCML runtime (not standard C library functions). The `R7_` prefix denotes Rev7 heritage. They are called with `CALL` rather than as built-in statements, introduced in KCML 3.00. They are officially marked obsolete due to Y2K issues, and in KCML 6.9+ the library containing them is no longer available — calls will fail. Do not use them in new code, and replace any existing calls when migrating to KCML 6.9.
 
 **R7_DATE2J** — converts `DD/MM/YY` (2-digit year only) to Julian integer:
 ```kcml

@@ -91,7 +91,7 @@ When a tested code example reveals a quirk not in the docs, add it to the approp
 
 ## What NOT to Do
 
-- Do not use `R7_DATE2J` or `R7_J2DATE` — these are C library functions removed in KCML 6.9. They are officially obsolete (Y2K issues) and will fail on upgraded systems. Replace with manual ISO string rearrangement + `CONVERT DATE` (see date-functions.md for the exact pattern)
+- Do not use `R7_DATE2J` or `R7_J2DATE` — these are Kerridge Rev7-era compatibility routines removed in KCML 6.9. They are officially obsolete (Y2K issues) and will fail on upgraded systems. Replace with manual ISO string rearrangement + `CONVERT DATE` (see date-functions.md for the exact pattern)
 - Do not use `CHR$(34)` — use `HEX(22)` or `""` (double double-quote) for quotes in strings
 - Do not use `INPUT` in scripts run with `kcml -p` — non-interactive, will hang
 - Do not forget `$END` at the end of every script
