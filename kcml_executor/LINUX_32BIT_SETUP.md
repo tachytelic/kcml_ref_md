@@ -52,17 +52,20 @@ sudo apt install \
 
 ---
 
-## Step 4 — Add KCML to $PATH
+## Step 4 — Set Environment Variables
 
-Create a file in `/etc/profile.d/` so the KCML binaries are available system-wide:
+Create a file in `/etc/profile.d/` so the KCML binaries and required variables are available system-wide:
 
 ```bash
 sudo tee /etc/profile.d/kcml.sh > /dev/null << 'EOF'
 export PATH="$PATH:/usr/local/kcml"
+export TERMFILE="/usr/local/kcml/TERMFILE"
 EOF
 ```
 
-The change takes effect on next login, or immediately in the current shell with:
+`TERMFILE` must point to the KCML terminal allocation file and must be identical for all users on the system. Without it, KCML exits with **code 126** (unable to open TERMFILE).
+
+The changes take effect on next login, or immediately in the current shell with:
 
 ```bash
 source /etc/profile.d/kcml.sh
