@@ -80,6 +80,18 @@ These legacy Rev7-era routines converted between `DD/MM/YY` strings and Julian i
 
 They were deprecated due to Y2K issues (2-digit year only). Debug binary analysis of KCML 7 confirms they were pure-arithmetic user functions (`uf_r7.c`) using an internal `GetJulianDate()` — they never called Unix date functions (`time()`, `localtime()`, etc.). strace confirms no OS date syscalls are made before the crash.
 
+**Which call forms crash and which survive in KCML 6.9** (verified by execution on 06.00.88):
+
+| Call form | Result |
+|-----------|--------|
+| `CALL R7_DATE2J date$ TO julian` | **Works** — returns correct Julian |
+| `CALL R7_DATE2J date$, julian` | **S24.054** panic |
+| `CALL R7_J2DATE julian, width TO date$` | **Works** — returns correct date string |
+| `CALL R7_J2DATE julian TO date$` | **S24.053** panic |
+| `CALL R7_J2DATE julian, date$` | **S24.060** panic |
+
+The ERP global subroutine `unpack_date` calls without the `TO` clause → **S24.062** panic. The crash is a calling-convention mismatch, not a completely missing function.
+
 **Migration pattern** — replace `CALL R7_DATE2J oeh_date$, julian` with:
 
 ```kcml

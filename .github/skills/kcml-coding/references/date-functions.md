@@ -58,21 +58,30 @@ REM Verified by execution: result = 104
 - `R7_J2DATE` uses internal `pnum()` formatting helpers to write day/month/year back to the output string
 - strace confirms: no OS-level date/time syscalls occur before the crash
 
-**Why they crash in KCML 6.9:**
-The routine names are present in the KCML 6.9 dispatch table (so the symbol resolves — a completely unknown `CALL` gives P38.001 at resolve time), but the underlying UF handler was removed. The crash happens at runtime when dispatch reaches a null/broken handler:
-- `CALL R7_DATE2J` → **S24.054** panic, exit 113
-- `CALL R7_J2DATE` → **S24.060** panic, exit 113
+**Calling conventions and which forms crash in KCML 6.9:**
 
-**Why they were deprecated:** They only handled 2-digit years (`DDMMYY`), with century windowing controlled by `$OPTIONS RUN` byte 48. This is inherently Y2K-unsafe.
+The S24 sub-code varies by calling convention — it is not a fixed code per function. Tested on KCML 06.00.88:
 
-**R7_DATE2J** — converts `DD/MM/YY` (2-digit year only) to Julian integer:
+| Call form | Result |
+|-----------|--------|
+| `CALL R7_DATE2J date$ TO julian` | **Works** — returns correct Julian |
+| `CALL R7_DATE2J date$, julian` | **S24.054** panic |
+| `CALL R7_J2DATE julian, width TO date$` | **Works** — returns correct DD/MM/YY[YY] |
+| `CALL R7_J2DATE julian TO date$` | **S24.053** panic |
+| `CALL R7_J2DATE julian, date$` | **S24.060** panic |
+
+The ERP global subroutine `unpack_date` uses a form without the `TO` clause, which causes **S24.062** at runtime. The crash is not the function being entirely absent — the `TO`-clause forms still function correctly — but calling convention mismatches with the removed handler variants panic.
+
+**Why they were deprecated:** They only handle 2-digit years (`DD/MM/YY`), with century windowing controlled by `$OPTIONS RUN` byte 48. The default cutoff is HEX(20) = 32 (years 00–31 → 2000s, 32–99 → 1900s). This is inherently Y2K-unsafe for any date storage beyond 2031.
+
+**R7_DATE2J** — converts `DD/MM/YY` (2-digit year, `TO` form only) to Julian integer:
 ```kcml
 CALL R7_DATE2J date$ TO julian
 ```
 
-**R7_J2DATE** — converts Julian integer to a date string. The second parameter sets output width: 8 = `DD/MM/YY`, 10 = `DD/MM/CCYY`:
+**R7_J2DATE** — converts Julian integer to a date string (`TO` form with width only):
 ```kcml
-CALL R7_J2DATE julian, 10 TO date$
+CALL R7_J2DATE julian, 10 TO date$   : REM width 8=DD/MM/YY, 10=DD/MM/CCYY
 ```
 
 #### Migration: replacing R7_DATE2J when upgrading to KCML 6.9
