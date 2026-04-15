@@ -1,0 +1,13 @@
+{
+  "customer": {
+    "name": "Acme Ltd",
+    "city": "Manchester"
+  },
+  "order": {
+    "total": 1234.56,
+    "lines": [
+      { "item": "Widget", "qty": 10 },
+      { "item": "Gadget", "qty": 3  }
+    ]
+  }
+}

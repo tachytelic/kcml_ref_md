@@ -1,0 +1,23 @@
+01000 REM Test uf_json_parse.so
+: DIM h, count, price, name$64, city$64, qty
+: DIM json$512
+: json$ = "{""customer"":{""name"":""Acme Ltd"",""city"":""Manchester""},""order"":{""total"":1234.56,""lines"":[{""item"":""Widget"",""qty"":10},{""item"":""Gadget"",""qty"":3}]}}"
+: CALL JSON_PARSE json$ TO h
+: PRINT "handle="; h
+: IF h == 0 THEN PRINT "PARSE FAILED"
+: IF h == 0 THEN $END
+: CALL JSON_GET_STR h, "customer.name" TO name$
+: PRINT "name=["; RTRIM(name$); "]"
+: CALL JSON_GET_STR h, "customer.city" TO city$
+: PRINT "city=["; RTRIM(city$); "]"
+: CALL JSON_GET_NUM h, "order.total" TO price
+: PRINT "total="; price
+: CALL JSON_ARRAY_LEN h, "order.lines" TO count
+: PRINT "lines="; count
+: CALL JSON_GET_STR h, "order.lines[0].item" TO name$
+: PRINT "line0 item=["; RTRIM(name$); "]"
+: CALL JSON_GET_NUM h, "order.lines[1].qty" TO qty
+: PRINT "line1 qty="; qty
+: CALL JSON_FREE h
+: PRINT "freed ok"
+: $END
