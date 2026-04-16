@@ -76,6 +76,14 @@ def run_kcml(script: str, *args: str, timeout: int = 30):
 
 # ── Tool implementations ───────────────────────────────────────────────────────
 
+def get_customer(account: str) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_customer.src", ACCOUNTS_DIR, account.strip().upper()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
 def find_customer(name: str) -> str:
     if not name or not name.strip():
         return json.dumps({"error": "name parameter is required"})
@@ -119,6 +127,22 @@ def get_invoice(invoice: str) -> str:
 # ── MCP tool definitions ───────────────────────────────────────────────────────
 
 TOOLS = [
+    {
+        "name": "get_customer",
+        "description": (
+            "Direct lookup of a single customer account by account code in the "
+            "Kerridge ERP customer master (SALLED01). Returns name, current "
+            "balance, credit limit, and on-stop status. Use this when you already "
+            "have the account code. Use find_customer instead to search by name."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string", "description": "Customer account code, e.g. 'D2560'"}
+            },
+            "required": ["account"],
+        },
+    },
     {
         "name": "find_customer",
         "description": (
@@ -202,6 +226,7 @@ TOOLS = [
 ]
 
 TOOL_FNS = {
+    "get_customer":     lambda a: get_customer(a.get("account", "")),
     "find_customer":    lambda a: find_customer(a.get("name", "")),
     "get_orders":       lambda a: get_orders(a.get("account", "")),
     "get_order_detail": lambda a: get_order_detail(a.get("order", "")),
