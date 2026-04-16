@@ -11,9 +11,10 @@ Claude (MCP client)
     │
     │  JSON-RPC (stdio or HTTP/SSE)
     ▼
-server.py  ──►  kcml/get_orders.src  ──►  /user1/kopen/sop/OEHDR01  (live KISAM file)
-               kcml/get_invoices.src ──►  /user1/kopen/accounts/SALINV01
-               kcml/find_stock.src   ──►  /user1/kopen/stock/S_STOK01
+server.py  ──►  kcml/get_orders.src    ──►  /user1/kopen/sop/OEHDR01       (live KISAM file)
+               kcml/get_invoices.src   ──►  /user1/kopen/accounts/SALINV01
+               kcml/find_stock.src     ──►  /user1/kopen/stock/S_STOK01
+               kcml/get_part_sales.src ──►  /user1/kopen/sop_sa/OEMSA01
                ...etc
 ```
 
@@ -99,6 +100,7 @@ Claude Desktop `claude_desktop_config.json`:
 | `get_stock_item` | `part` | Direct lookup in `S_STOK01`. Description, UOM, product group, sell price, qty in stock, qty allocated, qty free. |
 | `find_stock` | `description` (fragment) | Case-insensitive description search. Up to 50 matches. |
 | `get_part_orders` | `part` | All sales order lines where this part has `qty_to_follow > 0` (`OEENT01` + `OEHDR01`). Shows which orders the allocated stock is committed to, plus picking note if one has been raised. |
+| `get_part_sales` | `part`, `months` (opt, default 12) | Invoiced sales history for a part from `OEMSA01` (600K+ record sales analysis file). Keyed access — fast. Returns each sale line: date, account, rep, order, qty, sales value, cost, customer ref. Sorted most-recent first, capped at 500 lines. |
 
 ### Purchase order tools
 
@@ -138,9 +140,15 @@ list_overdue() → get_invoices("T0001")
 **Stock availability + inbound**
 ```
 find_stock("ethernet cable") → get_stock_item("88504040")
-get_stock_item("88504040")    → get_part_orders("88504040")     [what sales orders need it]
+get_stock_item("88504040")    → get_part_orders("88504040")     [what orders need it]
 get_stock_item("88504040")    → get_purchase_orders("88504040") [when is it due in]
 get_purchase_orders("88504040") → get_purchase_order("64577")  [full PO detail]
+```
+
+**Sales history / margin analysis**
+```
+get_part_sales("88504040")           [last 12 months — who bought it, qty, value, cost]
+get_part_sales("88504040", months=24) [extend window to 2 years]
 ```
 
 **Warehouse / picking**
@@ -166,6 +174,7 @@ mcp_server/
     ├── get_stock_item.src
     ├── find_stock.src
     ├── get_part_orders.src
+    ├── get_part_sales.src
     ├── get_purchase_orders.src
     ├── get_purchase_order.src
     ├── get_picking_note.src
@@ -180,6 +189,7 @@ mcp_server/
 | Variable | Path | Used by |
 |----------|------|---------|
 | `SOP_DIR` | `/user1/kopen/sop` | Orders, picking |
+| `SOP_SA_DIR` | `/user1/kopen/sop_sa` | Sales analysis (OEMSA01) |
 | `ACCOUNTS_DIR` | `/user1/kopen/accounts` | Invoices, customers |
 | `STOCK_DIR` | `/user1/kopen/stock` | Stock master |
 | `POP_DIR` | `/user1/kopen/pop` | Purchase orders |
