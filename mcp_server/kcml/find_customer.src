@@ -1,0 +1,88 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM find_customer.src
+01010 REM Search SALLED01 for customers matching a name fragment (case-insensitive)
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p find_customer.src <accounts_dir> <name_fragment>
+01040 REM Output - JSON array of matching customers
+01050 REM
+01060 REM SALLED01 fields used (1-based offsets, verified by probe on this system)
+01070 REM   Customer Name      C  off=  33  len=  30
+01080 REM   Current Balance    I  off= 416  len=   8  dec=6  signed
+01090 REM   Credit Limit       I  off= 432  len=   8  dec=6
+01100 REM   Stop Invoices?     C  off=1379  len=   1
+01110 REM   B-tree key = account code
+01200 DIM ki_status, ki_sym, h
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$2100
+01230 DIM accounts_dir$128, cust_file$160
+01240 DIM search_u$32, name$32, name_u$32, acc$8, stop_flag$2
+01250 DIM balance, credit_lim
+01260 DIM je_name$64, je_acc$12
+01270 DIM first_match, on_stop_str$6
+01280 DIM pos, slen, found
+01300 accounts_dir$ = RTRIM($ARG(1))
+01310 IF accounts_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage - find_customer <accounts_dir> <name_fragment>""}"
+01330   $END
+01340 END DO
+01350 search_u$ = $ARG(2)
+01360 IF RTRIM(search_u$) == " " THEN DO
+01370   PRINT "{""error"":""Name fragment is required""}"
+01380   $END
+01390 END DO
+01400 search_u$ = $UPPER(search_u$)
+01410 slen = LEN(search_u$)
+01420 cust_file$ = accounts_dir$ & "/SALLED01"
+02000 REM Open SALLED01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, cust_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALLED01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 REM Scan - names in SALLED01 are uppercase; $UPPER on search covers mixed input
+02210 first_match = 1
+02220 PRINT "["
+02230 REPEAT
+02240   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02250   IF ki_status == 0 THEN DO
+02260     name$ = STR(rec$, 33, 30)
+02270     name_u$ = $UPPER(name$)
+02280     REM Sliding substring search
+02290     found = 0
+02300     FOR pos = 1 TO 30 - slen + 1
+02310       IF STR(name_u$, pos, slen) == STR(search_u$, 1, slen) THEN found = pos
+02320     NEXT pos
+02330     IF found > 0 THEN DO
+02340       acc$       = RTRIM(ki_key$)
+02350       stop_flag$ = STR(rec$, 1379, 1)
+02360       UNPACK (#########.######) STR(rec$, 416, 8) TO balance
+02370       UNPACK (#########.######) STR(rec$, 432, 8) TO credit_lim
+02380       on_stop_str$ = "false"
+02390       IF stop_flag$ == "Y" THEN on_stop_str$ = "true"
+02400       IF NOT first_match THEN PRINT "  ,"
+02410       CALL JSON_ESCAPE name$ TO je_name$
+02420       CALL JSON_ESCAPE acc$ TO je_acc$
+02430       PRINT "  {"
+02440       PRINT $PRINTF("    ""account"": ""%s"",", je_acc$)
+02450       PRINT $PRINTF("    ""name"": ""%s"",", je_name$)
+02460       PRINT $PRINTF("    ""balance"": %.2f,", balance)
+02470       PRINT $PRINTF("    ""credit_limit"": %.2f,", credit_lim)
+02480       PRINT $PRINTF("    ""on_stop"": %s", on_stop_str$)
+02490       PRINT "  }"
+02500       first_match = 0
+02510     END DO
+02520   END DO
+02530 UNTIL ki_status <> 0
+02540 PRINT "]"
+02550 CALL KI_CLOSE h TO ki_status
+02560 CALL KI_FREE_HANDLE h TO ki_status
+02570 $END

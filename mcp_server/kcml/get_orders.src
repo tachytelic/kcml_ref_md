@@ -1,0 +1,91 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_orders.src
+01010 REM Return recent orders for a customer account code
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_orders.src <sop_dir> <account_code>
+01040 REM
+01050 REM Output - JSON array of order headers (order, date, customer_ref, delivery_name, value)
+01060 REM
+01080 REM OEHDR01 fields used (1-based offsets, from pik_to_json.src verified on this system)
+01090 REM   Order Number       C  off=  18  len=  10
+01100 REM   SA Account         C  off=  48  len=   6
+01110 REM   Customer Reference C  off=  58  len=  24
+01120 REM   Order Date         D  off=  82  len=   4  (packed BCD CCYYMMDD)
+01130 REM   Delivery Name      C  off= 114  len=  30
+01140 REM   Delivery Postcode  C  off=1112  len=   8
+01150 REM   Total Order Value  I  off= 730  len=   8  dec=6
+01160 REM   Suspended YN       C  off= 780  len=   1  (N=active, blank=historical)
+01170 REM   B-tree key = order number
+01200 DIM ki_status, ki_sym, h, count
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$1200
+01230 DIM sop_dir$128, hdr_file$160
+01240 DIM search_acc$8, ord_no$12, acc$8, cus_ref$26, del_name$32, del_pc$10
+01250 DIM susp$2, hex$10, order_date$12
+01260 DIM tot_val
+01270 DIM je_ref$50, je_del$64
+01280 DIM first_rec
+01300 sop_dir$ = RTRIM($ARG(1))
+01310 IF sop_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage - get_orders <sop_dir> <account_code>""}"
+01330   $END
+01340 END DO
+01350 search_acc$ = RTRIM($ARG(2))
+01360 IF search_acc$ == " " THEN DO
+01370   PRINT "{""error"":""Account code is required""}"
+01380   $END
+01390 END DO
+01400 hdr_file$ = sop_dir$ & "/OEHDR01"
+02000 REM Open OEHDR01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, hdr_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 REM Scan for this account's active orders
+02210 first_rec = 1
+02220 count = 0
+02230 PRINT "["
+02240 REPEAT
+02250   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02260   IF ki_status == 0 THEN DO
+02270     susp$ = STR(rec$, 780, 1)
+02280     acc$  = RTRIM(STR(rec$, 48, 6))
+02290     IF susp$ == "N" AND acc$ == search_acc$ THEN DO
+02300       count++
+02310       ord_no$   = RTRIM(STR(rec$, 18, 10))
+02320       cus_ref$  = RTRIM(STR(rec$, 58, 24))
+02330       del_name$ = RTRIM(STR(rec$, 114, 30))
+02340       del_pc$   = RTRIM(STR(rec$, 1112, 8))
+02350       UNPACK (#########.######) STR(rec$, 730, 8) TO tot_val
+02360       HEXUNPACK STR(rec$, 82, 4) TO hex$
+02370       order_date$ = "--/--/----"
+02380       IF RTRIM(hex$) <> "00000000" THEN order_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+02390       IF NOT first_rec THEN PRINT "  ,"
+02400       CALL JSON_ESCAPE cus_ref$ TO je_ref$
+02410       CALL JSON_ESCAPE del_name$ TO je_del$
+02420       PRINT "  {"
+02430       PRINT $PRINTF("    ""order"": ""%s"",", ord_no$)
+02440       PRINT $PRINTF("    ""date"": ""%s"",", order_date$)
+02450       PRINT $PRINTF("    ""customer_ref"": ""%s"",", je_ref$)
+02460       PRINT $PRINTF("    ""delivery_name"": ""%s"",", je_del$)
+02470       PRINT $PRINTF("    ""delivery_postcode"": ""%s"",", del_pc$)
+02480       PRINT $PRINTF("    ""value"": %.2f", tot_val)
+02490       PRINT "  }"
+02500       first_rec = 0
+02510     END DO
+02520   END DO
+02530 UNTIL ki_status <> 0
+02540 PRINT "]"
+02550 CALL KI_CLOSE h TO ki_status
+02560 CALL KI_FREE_HANDLE h TO ki_status
+02570 $END

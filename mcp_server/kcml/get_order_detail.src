@@ -1,0 +1,248 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_order_detail.src
+01010 REM Return full detail for a single order - header + lines + pick status
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_order_detail.src <sop_dir> <order_number>
+01040 REM
+01050 REM Output - JSON object with header fields and docLines array.
+01060 REM Each line shows part, description, qty ordered, qty picked, qty outstanding.
+01070 REM
+01080 REM Files used:
+01090 REM   OEHDR01  - order header (key = order number)
+01100 REM   OEENT01  - order lines (scan filtered by order number at off=378)
+01110 REM   OEPIK01  - picking lines (scan filtered by order number at off=18)
+01120 REM
+01130 REM OEENT01 fields (1-based offsets)
+01140 REM   Part Number    C  off=  19  len=  15
+01150 REM   Description 1  C  off=  91  len=  30
+01160 REM   Description 2  C  off= 121  len=  30
+01170 REM   Qty to Follow  I  off= 186  len=   8  dec=6
+01180 REM   Unit of Meas.  C  off= 151  len=   6
+01190 REM   Selling Price  I  off= 202  len=   8  dec=6
+01200 REM   Order Number   C  off= 378  len=  10  (filter key)
+01210 REM
+01220 REM OEPIK01 fields (1-based offsets, verified on this system)
+01230 REM   Order Number   C  off=  18  len=  10  (filter key)
+01240 REM   Part Number    C  off=  62  len=  15
+01250 REM   Picking Note   I  off= 110  len=   4  (>0 = picked)
+01260 REM   Qty to Pick    I  off= 118  len=   8  dec=6
+01270 DIM ki_status, ki_sym, h_hdr, h_ent, h_pik
+01280 DIM ki_dataptr$6, ki_key$64
+01290 DIM hdr_rec$1200, ent_rec$400, pik_rec$256
+01300 DIM sop_dir$128, hdr_file$160, ent_file$160, pik_file$160
+01310 DIM order_no$12, ord_trim$12, acc$8, cus_ref$26, del_name$32
+01320 DIM inv_name$32, inv_a1$32, inv_a2$32, inv_a3$32, inv_a4$32, inv_pc$10
+01330 DIM del_a1$32, del_a2$32, del_a3$32, del_a4$32, del_pc$10
+01340 DIM order_date$12, hex$10, susp$2
+01350 DIM rep_code$6, del_method$26
+01360 REM Line buffers - up to 100 lines
+01370 DIM ent_count, i, j
+01380 DIM ent_part$1500, ent_d1$3000, ent_d2$3000, ent_uom$600
+01390 DIM ent_tf(100), ent_price(100)
+01400 REM Pick buffers - up to 200 pick lines per order
+01410 DIM pik_count, pik_no
+01420 DIM pik_part$3000, pik_qty(200), pik_note(200)
+01430 DIM found_j, qty_picked, qty_outstanding
+01440 DIM je$512, tot_val
+01450 DIM first_addr
+01500 sop_dir$ = RTRIM($ARG(1))
+01510 IF sop_dir$ == " " THEN DO
+01520   PRINT "{""error"":""Usage - get_order_detail <sop_dir> <order_number>""}"
+01530   $END
+01540 END DO
+01550 ord_trim$ = RTRIM($ARG(2))
+01560 IF ord_trim$ == " " THEN DO
+01570   PRINT "{""error"":""Order number is required""}"
+01580   $END
+01590 END DO
+01600 hdr_file$ = sop_dir$ & "/OEHDR01"
+01610 ent_file$ = sop_dir$ & "/OEENT01"
+01620 pik_file$ = sop_dir$ & "/OEPIK01"
+02000 REM Phase 1 - Look up order header by key
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h_hdr, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (HDR)""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h_hdr, hdr_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h_hdr TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START h_hdr, ord_trim$, 1 TO ki_status
+02130 ki_sym = SYM(hdr_rec$)
+02140 CALL KI_READ_NEXT h_hdr, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02150 CALL KI_CLOSE h_hdr TO ki_status
+02160 CALL KI_FREE_HANDLE h_hdr TO ki_status
+02170 IF ki_status <> 0 THEN DO
+02180   PRINT $PRINTF("{""error"":""Order %s not found""}", ord_trim$)
+02190   $END
+02200 END DO
+02210 REM Verify it is the right order (KI_START positions at or after the key)
+02220 order_no$ = RTRIM(STR(hdr_rec$, 18, 10))
+02230 IF order_no$ <> ord_trim$ THEN DO
+02240   PRINT $PRINTF("{""error"":""Order %s not found""}", ord_trim$)
+02250   $END
+02260 END DO
+02270 REM Extract header fields
+02280 acc$       = RTRIM(STR(hdr_rec$, 48, 6))
+02290 cus_ref$   = RTRIM(STR(hdr_rec$, 58, 24))
+02300 rep_code$  = RTRIM(STR(hdr_rec$, 557, 4))
+02310 del_method$= RTRIM(STR(hdr_rec$, 561, 24))
+02320 susp$      = STR(hdr_rec$, 780, 1)
+02330 UNPACK (#########.######) STR(hdr_rec$, 730, 8) TO tot_val
+02340 HEXUNPACK STR(hdr_rec$, 82, 4) TO hex$
+02350 order_date$ = "--/--/----"
+02360 IF RTRIM(hex$) <> "00000000" THEN order_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+02370 REM Invoice address
+02380 inv_name$ = RTRIM(STR(hdr_rec$, 264, 30))
+02390 inv_a1$   = RTRIM(STR(hdr_rec$, 294, 30))
+02400 inv_a2$   = RTRIM(STR(hdr_rec$, 324, 30))
+02410 inv_a3$   = RTRIM(STR(hdr_rec$, 354, 30))
+02420 inv_a4$   = RTRIM(STR(hdr_rec$, 384, 30))
+02430 inv_pc$   = RTRIM(STR(hdr_rec$, 1120, 8))
+02440 REM Delivery address
+02450 del_name$ = RTRIM(STR(hdr_rec$, 114, 30))
+02460 del_a1$   = RTRIM(STR(hdr_rec$, 144, 30))
+02470 del_a2$   = RTRIM(STR(hdr_rec$, 174, 30))
+02480 del_a3$   = RTRIM(STR(hdr_rec$, 204, 30))
+02490 del_a4$   = RTRIM(STR(hdr_rec$, 234, 30))
+02500 del_pc$   = RTRIM(STR(hdr_rec$, 1112, 8))
+03000 REM Phase 2 - Collect order lines from OEENT01
+03010 CALL KI_ALLOC_HANDLE 0, 1 TO h_ent, ki_status
+03020 IF ki_status <> 0 THEN DO
+03030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (ENT)""}"
+03040   $END
+03050 END DO
+03060 CALL KI_OPEN h_ent, ent_file$, "R" TO ki_status
+03070 IF ki_status <> 0 THEN DO
+03080   PRINT $PRINTF("{""error"":""Cannot open OEENT01 (status %d)""}", ki_status)
+03090   CALL KI_FREE_HANDLE h_ent TO ki_status
+03100   $END
+03110 END DO
+03120 CALL KI_START_BEG h_ent, 1 TO ki_status
+03130 ki_sym = SYM(ent_rec$)
+03140 ent_count = 0
+03150 REPEAT
+03160   CALL KI_READ_NEXT h_ent, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03170   IF ki_status == 0 THEN DO
+03180     IF RTRIM(STR(ent_rec$, 378, 10)) == ord_trim$ AND ent_count < 100 THEN DO
+03190       ent_count++
+03200       STR(ent_part$, (ent_count-1)*15+1, 15) = STR(ent_rec$, 19, 15)
+03210       STR(ent_d1$,   (ent_count-1)*30+1, 30) = STR(ent_rec$, 91, 30)
+03220       STR(ent_d2$,   (ent_count-1)*30+1, 30) = STR(ent_rec$, 121, 30)
+03230       STR(ent_uom$,  (ent_count-1)*6+1,   6) = STR(ent_rec$, 151, 6)
+03240       UNPACK (#########.######) STR(ent_rec$, 186, 8) TO ent_tf(ent_count)
+03250       UNPACK (#########.######) STR(ent_rec$, 202, 8) TO ent_price(ent_count)
+03260     END DO
+03270   END DO
+03280 UNTIL ki_status <> 0
+03290 CALL KI_CLOSE h_ent TO ki_status
+03300 CALL KI_FREE_HANDLE h_ent TO ki_status
+04000 REM Phase 3 - Collect pick lines from OEPIK01
+04010 CALL KI_ALLOC_HANDLE 0, 1 TO h_pik, ki_status
+04020 IF ki_status <> 0 THEN DO
+04030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (PIK)""}"
+04040   $END
+04050 END DO
+04060 CALL KI_OPEN h_pik, pik_file$, "R" TO ki_status
+04070 IF ki_status <> 0 THEN DO
+04080   PRINT $PRINTF("{""error"":""Cannot open OEPIK01 (status %d)""}", ki_status)
+04090   CALL KI_FREE_HANDLE h_pik TO ki_status
+04100   $END
+04110 END DO
+04120 CALL KI_START_BEG h_pik, 1 TO ki_status
+04130 ki_sym = SYM(pik_rec$)
+04140 pik_count = 0
+04150 REPEAT
+04160   CALL KI_READ_NEXT h_pik, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04170   IF ki_status == 0 THEN DO
+04180     IF RTRIM(STR(pik_rec$, 18, 10)) == ord_trim$ AND pik_count < 200 THEN DO
+04190       pik_count++
+04200       STR(pik_part$, (pik_count-1)*15+1, 15) = STR(pik_rec$, 62, 15)
+04210       UNPACK (########) STR(pik_rec$, 110, 4) TO pik_note(pik_count)
+04220       UNPACK (#########.######) STR(pik_rec$, 118, 8) TO pik_qty(pik_count)
+04230     END DO
+04240   END DO
+04250 UNTIL ki_status <> 0
+04260 CALL KI_CLOSE h_pik TO ki_status
+04270 CALL KI_FREE_HANDLE h_pik TO ki_status
+05000 REM Phase 4 - Emit JSON
+05010 PRINT "{"
+05020 PRINT $PRINTF("  ""order"": ""%s"",", ord_trim$)
+05030 PRINT $PRINTF("  ""date"": ""%s"",", order_date$)
+05040 CALL JSON_ESCAPE acc$ TO je$
+05050 PRINT $PRINTF("  ""account"": ""%s"",", je$)
+05060 CALL JSON_ESCAPE cus_ref$ TO je$
+05070 PRINT $PRINTF("  ""customer_ref"": ""%s"",", je$)
+05080 CALL JSON_ESCAPE rep_code$ TO je$
+05090 PRINT $PRINTF("  ""rep_code"": ""%s"",", je$)
+05100 CALL JSON_ESCAPE del_method$ TO je$
+05110 PRINT $PRINTF("  ""delivery_method"": ""%s"",", je$)
+05120 PRINT $PRINTF("  ""value"": %.2f,", tot_val)
+05125 DIM active_str$6
+05127 active_str$ = "false"
+05128 IF susp$ == "N" THEN active_str$ = "true"
+05130 PRINT $PRINTF("  ""active"": %s,", active_str$)
+05140 REM Invoice address
+05150 PRINT "  ""invoice_address"": ["
+05160 first_addr = 1
+05170 GOSUB 'EMIT_ADDR_LINE(inv_name$)
+05180 GOSUB 'EMIT_ADDR_LINE(inv_a1$)
+05190 GOSUB 'EMIT_ADDR_LINE(inv_a2$)
+05200 GOSUB 'EMIT_ADDR_LINE(inv_a3$)
+05210 GOSUB 'EMIT_ADDR_LINE(inv_a4$)
+05220 GOSUB 'EMIT_ADDR_LINE(inv_pc$)
+05230 PRINT "  ],"
+05240 REM Delivery address
+05250 PRINT "  ""delivery_address"": ["
+05260 first_addr = 1
+05270 GOSUB 'EMIT_ADDR_LINE(del_name$)
+05280 GOSUB 'EMIT_ADDR_LINE(del_a1$)
+05290 GOSUB 'EMIT_ADDR_LINE(del_a2$)
+05300 GOSUB 'EMIT_ADDR_LINE(del_a3$)
+05310 GOSUB 'EMIT_ADDR_LINE(del_a4$)
+05320 GOSUB 'EMIT_ADDR_LINE(del_pc$)
+05330 PRINT "  ],"
+05340 REM Order lines with pick status
+05350 PRINT "  ""lines"": ["
+05360 FOR i = 1 TO ent_count
+05370   REM Sum picked qty and find outstanding for this part
+05380   qty_picked = 0
+05390   qty_outstanding = 0
+05400   FOR j = 1 TO pik_count
+05410     IF STR(pik_part$, (j-1)*15+1, 15) == STR(ent_part$, (i-1)*15+1, 15) THEN DO
+05420       IF pik_note(j) > 0 THEN qty_picked = qty_picked + pik_qty(j)
+05430       IF pik_note(j) == 0 THEN qty_outstanding = qty_outstanding + pik_qty(j)
+05440     END DO
+05450   NEXT j
+05460   IF i > 1 THEN PRINT "    ,"
+05470   PRINT "    {"
+05480   CALL JSON_ESCAPE STR(ent_part$, (i-1)*15+1, 15) TO je$
+05490   PRINT $PRINTF("      ""part"": ""%s"",", je$)
+05500   CALL JSON_ESCAPE STR(ent_d1$, (i-1)*30+1, 30) TO je$
+05510   PRINT $PRINTF("      ""description"": ""%s"",", je$)
+05520   CALL JSON_ESCAPE STR(ent_d2$, (i-1)*30+1, 30) TO je$
+05530   PRINT $PRINTF("      ""description2"": ""%s"",", je$)
+05540   CALL JSON_ESCAPE STR(ent_uom$, (i-1)*6+1, 6) TO je$
+05550   PRINT $PRINTF("      ""uom"": ""%s"",", je$)
+05560   PRINT $PRINTF("      ""price"": %.2f,", ent_price(i))
+05570   PRINT $PRINTF("      ""qty_to_follow"": %.0f,", ent_tf(i))
+05580   PRINT $PRINTF("      ""qty_picked"": %.0f,", qty_picked)
+05590   PRINT $PRINTF("      ""qty_outstanding"": %.0f", qty_outstanding)
+05600   PRINT "    }"
+05610 NEXT i
+05620 PRINT "  ]"
+05630 PRINT "}"
+05640 $END
+06000 REM EMIT_ADDR_LINE - print one address line if non-blank
+06010 DEFSUB 'EMIT_ADDR_LINE(line$32)
+06020 IF RTRIM(line$) <> " " THEN DO
+06030   IF NOT first_addr THEN PRINT "    ,"
+06040   CALL JSON_ESCAPE line$ TO je$
+06050   PRINT $PRINTF("    ""%s""", je$)
+06060   first_addr = 0
+06070 END DO
+06080 ENDSUB

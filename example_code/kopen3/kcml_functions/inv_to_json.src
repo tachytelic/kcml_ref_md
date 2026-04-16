@@ -1,0 +1,381 @@
+#!/usr/local/bin/kcml -p
+00100 $COMPLIANCE 1
+01000 REM inv_to_json.src - Extract a Sales Invoice from KISAM DB and emit JSON
+01010 REM
+01020 REM Usage - kcml -x /usr/lib/kcml/uf_json.so -p inv_to_json.src <sop_dir> <accounts_dir> <invoice_number>
+01030 REM   sop_dir        - directory containing OEPIK01, OEHDR01, OEENT01
+01040 REM   accounts_dir   - directory containing SALINV01, SALLED01
+01050 REM   invoice_number - numeric invoice number (e.g. 153132)
+01060 REM
+01070 REM Phase 1 - Scan SALINV01 for Invoice Number = target_inv
+01080 REM Phase 2 - Scan OEPIK01 for Invoice No = target_inv (invoice lines)
+01090 REM Phase 3 - Look up OEHDR01 by order number (addresses/header)
+01100 REM Phase 4 - Look up SALLED01 by customer code (customer master)
+01110 REM Phase 5 - Scan OEENT01 for matching order number (descriptions/prices)
+01120 REM Phase 6 - Emit JSON
+01130 REM
+01140 REM All field offsets are 1-based per the .DD data dictionary files.
+01150 REM
+01160 DIM ki_status, ki_sym
+01170 DIM h_sal, h_cust, h_pik, h_hdr, h_ent
+01180 DIM target_inv, sal_inv_no, pik_inv_no, pik_count, ent_count
+01190 DIM i, j, found_j
+01200 DIM ki_dataptr$6, ki_key$64
+01210 DIM sal_rec$360
+01220 DIM cust_rec$2040
+01230 DIM pik_rec$256
+01240 DIM hdr_rec$1200
+01250 DIM ent_rec$400
+01260 DIM sop_dir$128, acc_dir$128
+01270 DIM sal_file$180, cust_file$180, pik_file$180, hdr_file$180, ent_file$180
+01280 DIM hex$16, tmp$64, je$512
+01290 DIM doc_ref$14
+01300 DIM acc_num$8, cus_ref$26, rep_code$6, del_method$26
+01310 DIM pay_terms$22, vat_number$22, order_no$12, ord_trim$12
+01320 DIM inv_date$12, order_date$12
+01330 DIM inv_date_raw$4
+01340 DIM sal_reference$16, sal_narrative$32, sal_ttype$2
+01350 DIM sal_value, sal_vat
+01360 DIM cust_name$32
+01370 DIM inv_name$32, inv_a1$32, inv_a2$32, inv_a3$32, inv_a4$32, inv_pc$10
+01380 DIM del_name$32, del_a1$32, del_a2$32, del_a3$32, del_a4$32, del_pc$10
+01390 DIM add_text1$32, add_text2$32, add_text3$32, add_text4$32
+01400 REM Invoice line buffers - up to 50 lines from OEPIK01
+01410 DIM pik_parts$750, pik_qty(50)
+01420 REM OEENT01 match buffers - up to 100 entries per order
+01430 DIM ent_parts$1500, ent_d1$3000, ent_d2$3000
+01440 DIM ent_price(100), ent_uom$600, ent_vatc$100
+01450 REM EMIT_ADDR working variables
+01460 DIM ea_n, ea_first_line, ea_line_val$36
+01470 REM
+01480 REM Validate arguments
+01490 sop_dir$ = RTRIM($ARG(1))
+01500 acc_dir$ = RTRIM($ARG(2))
+01510 IF sop_dir$ == " " OR acc_dir$ == " " THEN DO
+01520   PRINT "{""error"":""Usage: kcml -p inv_to_json.src <sop_dir> <accounts_dir> <invoice_number>""}"
+01530   $END
+01540 END DO
+01550 CONVERT $ARG(3) TO target_inv
+01560 IF target_inv <= 0 THEN DO
+01570   PRINT "{""error"":""Invalid invoice number""}"
+01580   $END
+01590 END DO
+01600 sal_file$  = acc_dir$ & "/SALINV01"
+01610 cust_file$ = acc_dir$ & "/SALLED01"
+01620 pik_file$  = sop_dir$ & "/OEPIK01"
+01630 hdr_file$  = sop_dir$ & "/OEHDR01"
+01640 ent_file$  = sop_dir$ & "/OEENT01"
+01650 doc_ref$ = $PRINTF("%d", target_inv)
+02000 REM Phase 1 - Scan SALINV01 for Invoice Number = target_inv
+02010 REM   Transaction Type C  off=  20  len=   1
+02020 REM   Invoice Date     D  off=  22  len=   4
+02030 REM   Invoice Number   I  off=  72  len=   4
+02040 REM   Customer Code    C  off=  62  len=   6
+02050 REM   Reference        C  off=  76  len=  14
+02060 REM   Invoice Value (Base) I off=90 len=8 dec=6
+02070 REM   VAT Value (Base)    I  off=106 len=8 dec=6
+02080 REM   Narrative           C  off=236 len=  30
+02090 CALL KI_ALLOC_HANDLE 0, 1 TO h_sal, ki_status
+02100 IF ki_status <> 0 THEN DO
+02110   PRINT "{""error"":""KI_ALLOC_HANDLE failed (SAL)""}"
+02120   $END
+02130 END DO
+02140 CALL KI_OPEN h_sal, sal_file$, "R" TO ki_status
+02150 IF ki_status <> 0 THEN DO
+02160   PRINT $PRINTF("{""error"":""Cannot open SALINV01 (status %d)""}", ki_status)
+02170   CALL KI_FREE_HANDLE h_sal TO ki_status
+02180   $END
+02190 END DO
+02200 CALL KI_START_BEG h_sal, 1 TO ki_status
+02210 ki_sym = SYM(sal_rec$)
+02220 acc_num$ = " "
+02230 REPEAT
+02240   CALL KI_READ_NEXT h_sal, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02250   IF ki_status == 0 THEN DO
+02260     UNPACK (########) STR(sal_rec$, 72, 4) TO sal_inv_no
+02270     IF sal_inv_no == target_inv THEN DO
+02280       acc_num$       = RTRIM(STR(sal_rec$, 62, 6))
+02290       sal_ttype$     = RTRIM(STR(sal_rec$, 20, 1))
+02300       inv_date_raw$  = STR(sal_rec$, 22, 4)
+02310       HEXUNPACK inv_date_raw$ TO hex$
+02320       inv_date$ = "--/--/----"
+02330       IF RTRIM(hex$) <> "00000000" THEN inv_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+02340       UNPACK (#########.######) STR(sal_rec$, 90, 8) TO sal_value
+02350       UNPACK (#########.######) STR(sal_rec$, 106, 8) TO sal_vat
+02360       sal_reference$ = RTRIM(STR(sal_rec$, 76, 14))
+02370       sal_narrative$ = RTRIM(STR(sal_rec$, 236, 30))
+02380       ki_status = 1
+02390     END DO
+02400   END DO
+02410 UNTIL ki_status <> 0
+02420 CALL KI_CLOSE h_sal TO ki_status
+02430 CALL KI_FREE_HANDLE h_sal TO ki_status
+02440 IF acc_num$ == " " THEN DO
+02450   PRINT "{""error"":""Invoice not found in SALINV01""}"
+02460   $END
+02470 END DO
+03000 REM Phase 2 - Scan OEPIK01 for Invoice No = target_inv
+03010 REM   Order Number   C  off=  18  len=  10
+03020 REM   Part number    C  off=  62  len=  15
+03030 REM   Invoice No     I  off= 102  len=   4
+03040 REM   Qty Picked     I  off= 126  len=   8  dec=6
+03050 CALL KI_ALLOC_HANDLE 0, 1 TO h_pik, ki_status
+03060 IF ki_status <> 0 THEN DO
+03070   PRINT "{""error"":""KI_ALLOC_HANDLE failed (PIK)""}"
+03080   $END
+03090 END DO
+03100 CALL KI_OPEN h_pik, pik_file$, "R" TO ki_status
+03110 IF ki_status <> 0 THEN DO
+03120   PRINT $PRINTF("{""error"":""Cannot open OEPIK01 (status %d)""}", ki_status)
+03130   CALL KI_FREE_HANDLE h_pik TO ki_status
+03140   $END
+03150 END DO
+03160 CALL KI_START_BEG h_pik, 1 TO ki_status
+03170 ki_sym = SYM(pik_rec$)
+03180 pik_count = 0
+03190 REPEAT
+03200   CALL KI_READ_NEXT h_pik, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03210   IF ki_status == 0 THEN DO
+03220     UNPACK (########) STR(pik_rec$, 102, 4) TO pik_inv_no
+03230     IF pik_inv_no == target_inv AND pik_count < 50 THEN DO
+03240       IF pik_count == 0 THEN order_no$ = STR(pik_rec$, 18, 10)
+03250       pik_count++
+03260       STR(pik_parts$, (pik_count-1)*15+1, 15) = STR(pik_rec$, 62, 15)
+03270       UNPACK (#########.######) STR(pik_rec$, 126, 8) TO pik_qty(pik_count)
+03280     END DO
+03290   END DO
+03300 UNTIL ki_status <> 0
+03310 CALL KI_CLOSE h_pik TO ki_status
+03320 CALL KI_FREE_HANDLE h_pik TO ki_status
+03330 IF pik_count == 0 THEN DO
+03340   PRINT "{""error"":""No picking lines found in OEPIK01 for this invoice""}"
+03350   $END
+03360 END DO
+03370 ord_trim$ = RTRIM(order_no$)
+04000 REM Phase 3 - Look up order header in OEHDR01 by order number
+04010 REM   SA Account         C  off=  48  len=   6
+04020 REM   Customer Reference C  off=  58  len=  24
+04030 REM   Order Date         D  off=  82  len=   4
+04040 REM   Delivery A/c Name  C  off= 114  len=  30
+04050 REM   Delivery Address 1 C  off= 144  len=  30
+04060 REM   Delivery Address 2 C  off= 174  len=  30
+04070 REM   Delivery Address 3 C  off= 204  len=  30
+04080 REM   Delivery Address 4 C  off= 234  len=  30
+04090 REM   Invoice A/c Name   C  off= 264  len=  30
+04100 REM   Invoice Address 1  C  off= 294  len=  30
+04110 REM   Invoice Address 2  C  off= 324  len=  30
+04120 REM   Invoice Address 3  C  off= 354  len=  30
+04130 REM   Invoice Address 4  C  off= 384  len=  30
+04140 REM   Payment Terms      C  off= 414  len=  20
+04150 REM   Sales Rep          C  off= 557  len=   4
+04160 REM   Delivery Method    C  off= 561  len=  24
+04170 REM   VAT Number         C  off=1066  len=  20
+04180 REM   Additional Text 1  C  off= 435  len=  30
+04190 REM   Additional Text 2  C  off= 465  len=  30
+04200 REM   Additional Text 3  C  off= 495  len=  30
+04210 REM   Additional Text 4  C  off= 525  len=  30
+04220 REM   Delivery Postcode  C  off=1112  len=   8
+04230 REM   Invoice Postcode   C  off=1120  len=   8
+04240 CALL KI_ALLOC_HANDLE 0, 1 TO h_hdr, ki_status
+04250 IF ki_status <> 0 THEN DO
+04260   PRINT "{""error"":""KI_ALLOC_HANDLE failed (HDR)""}"
+04270   $END
+04280 END DO
+04290 CALL KI_OPEN h_hdr, hdr_file$, "R" TO ki_status
+04300 IF ki_status <> 0 THEN DO
+04310   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (status %d)""}", ki_status)
+04320   CALL KI_FREE_HANDLE h_hdr TO ki_status
+04330   $END
+04340 END DO
+04350 CALL KI_START h_hdr, ord_trim$, 1 TO ki_status
+04360 ki_sym = SYM(hdr_rec$)
+04370 CALL KI_READ_NEXT h_hdr, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04380 CALL KI_CLOSE h_hdr TO ki_status
+04390 CALL KI_FREE_HANDLE h_hdr TO ki_status
+04400 IF ki_status <> 0 THEN DO
+04410   PRINT "{""error"":""Order not found in OEHDR01""}"
+04420   $END
+04430 END DO
+04440 cus_ref$     = RTRIM(STR(hdr_rec$, 58, 24))
+04450 rep_code$    = RTRIM(STR(hdr_rec$, 557, 4))
+04460 del_method$  = RTRIM(STR(hdr_rec$, 561, 24))
+04470 pay_terms$   = RTRIM(STR(hdr_rec$, 414, 20))
+04480 vat_number$  = RTRIM(STR(hdr_rec$, 1066, 20))
+04490 add_text1$   = RTRIM(STR(hdr_rec$, 435, 30))
+04500 add_text2$   = RTRIM(STR(hdr_rec$, 465, 30))
+04510 add_text3$   = RTRIM(STR(hdr_rec$, 495, 30))
+04520 add_text4$   = RTRIM(STR(hdr_rec$, 525, 30))
+04530 HEXUNPACK STR(hdr_rec$, 82, 4) TO hex$
+04540 order_date$ = "--/--/----"
+04550 IF RTRIM(hex$) <> "00000000" THEN order_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+04560 inv_name$ = RTRIM(STR(hdr_rec$, 264, 30))
+04570 inv_a1$   = RTRIM(STR(hdr_rec$, 294, 30))
+04580 inv_a2$   = RTRIM(STR(hdr_rec$, 324, 30))
+04590 inv_a3$   = RTRIM(STR(hdr_rec$, 354, 30))
+04600 inv_a4$   = RTRIM(STR(hdr_rec$, 384, 30))
+04610 inv_pc$   = RTRIM(STR(hdr_rec$, 1120, 8))
+04620 del_name$ = RTRIM(STR(hdr_rec$, 114, 30))
+04630 del_a1$   = RTRIM(STR(hdr_rec$, 144, 30))
+04640 del_a2$   = RTRIM(STR(hdr_rec$, 174, 30))
+04650 del_a3$   = RTRIM(STR(hdr_rec$, 204, 30))
+04660 del_a4$   = RTRIM(STR(hdr_rec$, 234, 30))
+04670 del_pc$   = RTRIM(STR(hdr_rec$, 1112, 8))
+05000 REM Phase 4 - Look up customer master in SALLED01 by customer code
+05010 REM   Customer Name  C  off=  33  len=  30
+05020 CALL KI_ALLOC_HANDLE 0, 1 TO h_cust, ki_status
+05030 IF ki_status <> 0 THEN DO
+05040   PRINT "{""error"":""KI_ALLOC_HANDLE failed (CUST)""}"
+05050   $END
+05060 END DO
+05070 CALL KI_OPEN h_cust, cust_file$, "R" TO ki_status
+05080 IF ki_status <> 0 THEN DO
+05090   PRINT $PRINTF("{""error"":""Cannot open SALLED01 (status %d)""}", ki_status)
+05100   CALL KI_FREE_HANDLE h_cust TO ki_status
+05110   $END
+05120 END DO
+05130 CALL KI_START h_cust, acc_num$, 1 TO ki_status
+05140 ki_sym = SYM(cust_rec$)
+05150 CALL KI_READ_NEXT h_cust, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+05160 CALL KI_CLOSE h_cust TO ki_status
+05170 CALL KI_FREE_HANDLE h_cust TO ki_status
+05180 cust_name$ = " "
+05190 IF ki_status == 0 THEN cust_name$ = RTRIM(STR(cust_rec$, 33, 30))
+06000 REM Phase 5 - Scan OEENT01 and collect entries for this order
+06010 REM   Part number    C  off=  19  len=  15
+06020 REM   Description 1  C  off=  91  len=  30
+06030 REM   Description 2  C  off= 121  len=  30
+06040 REM   Unit of Measure C off= 151  len=   6
+06050 REM   VAT Code       C  off= 167  len=   1
+06060 REM   Selling Price  I  off= 202  len=   8  dec=6
+06070 REM   Order Number   C  off= 378  len=  10
+06080 CALL KI_ALLOC_HANDLE 0, 1 TO h_ent, ki_status
+06090 IF ki_status <> 0 THEN DO
+06100   PRINT "{""error"":""KI_ALLOC_HANDLE failed (ENT)""}"
+06110   $END
+06120 END DO
+06130 CALL KI_OPEN h_ent, ent_file$, "R" TO ki_status
+06140 IF ki_status <> 0 THEN DO
+06150   PRINT $PRINTF("{""error"":""Cannot open OEENT01 (status %d)""}", ki_status)
+06160   CALL KI_FREE_HANDLE h_ent TO ki_status
+06170   $END
+06180 END DO
+06190 CALL KI_START_BEG h_ent, 1 TO ki_status
+06200 ki_sym = SYM(ent_rec$)
+06210 ent_count = 0
+06220 REPEAT
+06230   CALL KI_READ_NEXT h_ent, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+06240   IF ki_status == 0 THEN DO
+06250     IF RTRIM(STR(ent_rec$, 378, 10)) == ord_trim$ AND ent_count < 100 THEN DO
+06260       ent_count++
+06270       STR(ent_parts$, (ent_count-1)*15+1, 15) = STR(ent_rec$, 19, 15)
+06280       STR(ent_d1$,    (ent_count-1)*30+1, 30) = STR(ent_rec$, 91, 30)
+06290       STR(ent_d2$,    (ent_count-1)*30+1, 30) = STR(ent_rec$, 121, 30)
+06300       STR(ent_uom$,   (ent_count-1)*6+1,   6) = STR(ent_rec$, 151, 6)
+06310       STR(ent_vatc$,  (ent_count-1)+1,      1) = STR(ent_rec$, 167, 1)
+06320       UNPACK (#########.######) STR(ent_rec$, 202, 8) TO ent_price(ent_count)
+06330     END DO
+06340   END DO
+06350 UNTIL ki_status <> 0
+06360 CALL KI_CLOSE h_ent TO ki_status
+06370 CALL KI_FREE_HANDLE h_ent TO ki_status
+07000 REM Phase 6 - Emit JSON
+07010 PRINT "{"
+07020 PRINT $PRINTF("  ""docType"": ""Invoice"",")
+07030 PRINT $PRINTF("  ""brand"": ""AustenTapes"",")
+07040 PRINT $PRINTF("  ""docRef"": ""%s"",",         doc_ref$)
+07050 PRINT $PRINTF("  ""accNum"": ""%s"",",         acc_num$)
+07060 CALL JSON_ESCAPE cus_ref$ TO je$
+07070 PRINT $PRINTF("  ""cusRef"": ""%s"",",         je$)
+07080 CALL JSON_ESCAPE cust_name$ TO je$
+07090 PRINT $PRINTF("  ""customerName"": ""%s"",",   je$)
+07100 PRINT $PRINTF("  ""orderNumber"": ""%s"",",    ord_trim$)
+07110 PRINT $PRINTF("  ""invoiceDate"": ""%s"",",    inv_date$)
+07120 PRINT $PRINTF("  ""orderDate"": ""%s"",",      order_date$)
+07130 PRINT $PRINTF("  ""invoiceValue"": ""%s"",",   $PRINTF("%.2f", sal_value))
+07140 PRINT $PRINTF("  ""vatValue"": ""%s"",",       $PRINTF("%.2f", sal_vat))
+07150 PRINT $PRINTF("  ""transactionType"": ""%s"",",sal_ttype$)
+07160 CALL JSON_ESCAPE sal_narrative$ TO je$
+07170 PRINT $PRINTF("  ""narrative"": ""%s"",",      je$)
+07180 CALL JSON_ESCAPE sal_reference$ TO je$
+07190 PRINT $PRINTF("  ""reference"": ""%s"",",      je$)
+07200 PRINT $PRINTF("  ""salesRep"": ""%s"",",       rep_code$)
+07210 PRINT $PRINTF("  ""deliveryMethod"": ""%s"",", del_method$)
+07220 CALL JSON_ESCAPE pay_terms$ TO je$
+07230 PRINT $PRINTF("  ""paymentTerms"": ""%s"",",   je$)
+07240 PRINT $PRINTF("  ""vatNumber"": ""%s"",",      vat_number$)
+07250 REM Additional text lines (free text on order header)
+07260 PRINT "  ""orderText"": ["
+07270 GOSUB 'EMIT_ADDR(add_text1$, add_text2$, add_text3$, add_text4$, " ", " ")
+07280 PRINT "  ],"
+07290 REM Invoice address
+07300 PRINT "  ""invoiceAddress"": ["
+07310 GOSUB 'EMIT_ADDR(inv_name$, inv_a1$, inv_a2$, inv_a3$, inv_a4$, inv_pc$)
+07320 PRINT "  ],"
+07330 REM Delivery address
+07340 PRINT "  ""deliveryAddress"": ["
+07350 GOSUB 'EMIT_ADDR(del_name$, del_a1$, del_a2$, del_a3$, del_a4$, del_pc$)
+07360 PRINT "  ],"
+07370 REM Invoice lines
+07380 PRINT "  ""docLines"": ["
+07390 FOR i = 1 TO pik_count
+07400   REM Find matching OEENT01 entry for this part number
+07410   tmp$ = STR(pik_parts$, (i-1)*15+1, 15)
+07420   found_j = 0
+07430   FOR j = 1 TO ent_count
+07440     IF STR(ent_parts$, (j-1)*15+1, 15) == tmp$ THEN DO
+07450       found_j = j
+07460       j = ent_count + 1
+07470     END DO
+07480   NEXT j
+07490   IF i > 1 THEN PRINT "    ,"
+07500   PRINT "    {"
+07510   tmp$ = RTRIM(STR(pik_parts$, (i-1)*15+1, 15))
+07520   CALL JSON_ESCAPE tmp$ TO je$
+07530   PRINT $PRINTF("      ""partno"": ""%s"",", je$)
+07540   IF found_j > 0 THEN DO
+07550     tmp$ = STR(ent_d1$, (found_j-1)*30+1, 30)
+07560     CALL JSON_ESCAPE tmp$ TO je$
+07570     PRINT $PRINTF("      ""description"": ""%s"",", je$)
+07580     PRINT $PRINTF("      ""uom"": ""%s"",", RTRIM(STR(ent_uom$, (found_j-1)*6+1, 6)))
+07590     PRINT $PRINTF("      ""vatCode"": ""%s"",", RTRIM(STR(ent_vatc$, (found_j-1)+1, 1)))
+07600     PRINT $PRINTF("      ""unitPrice"": ""%s"",", $PRINTF("%.6f", ent_price(found_j)))
+07610   END DO
+07620   ELSE DO
+07630     PRINT "      ""description"": "","
+07635     PRINT "      ""uom"": "","
+07640     PRINT "      ""vatCode"": "","
+07645     PRINT "      ""unitPrice"": ""0.000000"","
+07660   END DO
+07670   PRINT $PRINTF("      ""qty"": ""%d"",", INT(pik_qty(i)))
+07680   IF found_j > 0 THEN DO
+07690     tmp$ = STR(ent_d2$, (found_j-1)*30+1, 30)
+07700     CALL JSON_ESCAPE tmp$ TO je$
+07710     PRINT $PRINTF("      ""lineFreeText"": ""%s""", je$)
+07720   END DO
+07730   ELSE PRINT "      ""lineFreeText"": """""
+07740   PRINT "    }"
+07750 NEXT i
+07760 PRINT "  ]"
+07770 PRINT "}"
+07780 $END
+08000 REM EMIT_ADDR - Output 6 address line candidates as a JSON string array
+08010 REM Skips empty (all-space) values; comma-before pattern for valid JSON.
+08020 DEFSUB 'EMIT_ADDR(l1$32, l2$32, l3$32, l4$32, l5$32, l6$32)
+08030 ea_first_line = 1
+08040 FOR ea_n = 1 TO 6
+08050   SELECT CASE ea_n
+08060     CASE 1 : ea_line_val$ = l1$
+08070     CASE 2 : ea_line_val$ = l2$
+08080     CASE 3 : ea_line_val$ = l3$
+08090     CASE 4 : ea_line_val$ = l4$
+08100     CASE 5 : ea_line_val$ = l5$
+08110     CASE 6 : ea_line_val$ = l6$
+08120   END SELECT
+08130   IF RTRIM(ea_line_val$) <> " " THEN DO
+08140     IF NOT ea_first_line THEN PRINT "    ,"
+08142     CALL JSON_ESCAPE ea_line_val$ TO je$
+08150     PRINT $PRINTF("    ""%s""", je$)
+08160     ea_first_line = 0
+08170   END DO
+08180 NEXT ea_n
+08200 ENDSUB

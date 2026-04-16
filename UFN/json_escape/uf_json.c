@@ -11,7 +11,6 @@
 **
 ** KCML usage:
 **   DIM raw$256, escaped$512
-**   raw$ = "100MM X 33M (4" X 36yds)"
 **   CALL JSON_ESCAPE raw$ TO escaped$
 **   PRINT $PRINTF("  ""desc"": ""%s""", escaped$)
 **
@@ -19,42 +18,33 @@
 **   make -f uf_json.mak
 **
 ** Load:
-**   kcml -x /path/to/uf_json.so -p pik_to_json.kcml <args>
+**   kcml -x /path/to/uf_json.so -p myscript.kcml
+**
+** Compiled against: KCML 06.00.xx uf_pub.h (2014, new API), 32-bit
 */
 
 #include <stdio.h>
 #include <string.h>
 #include "uf_pub.h"
 
-/* function prototype */
 static UFN_RET UFN_API json_escape(UFN_ARGS);
 
-/*
-** UFN table - MUST be in sorted (ASCII) order by name
-*/
-static UFN_Spec UFN_Table[] = {
-    { "JSON_ESCAPE", 0, json_escape, { CSTR, RCVR(CSTR), 0 } },
-    { "", 0, 0, { 0 } }, /* end marker */
+static const UFN_Spec UFN_Table[] = {
+    { "JSON_ESCAPE", json_escape, { UFN_CSTR, RCVR(UFN_CSTR), 0 } },
+    { 0 }   /* end marker */
 };
 
-/*
-** Library entry point - called by KCML on first use of any function
-** in this library.
-*/
-UFN_Spec * UFN_API uf_ext(UFN_Subs *p)
+PUFN_Spec UFN_EXPORT uf_ext(const UFN_Subs *p)
 {
+    (void)p;
     return UFN_Table;
 }
 
 /*
 ** json_escape
 **
-** Escapes a string for safe inclusion as a JSON string value.
-** The caller is responsible for emitting the surrounding double-quotes.
-**
-** Parameter 0 (CSTR)       - input string
-** Parameter 1 (RCVR(CSTR)) - output buffer (must be at least 2x input size
-**                            in the worst case where every char is a quote)
+** Parameter 0 (UFN_CSTR)       - input string
+** Parameter 1 (RCVR(UFN_CSTR)) - output buffer (at least 2x input size)
 **
 ** Returns UFN_BADARGS if the output buffer is too small.
 */
@@ -62,7 +52,7 @@ static UFN_RET UFN_API json_escape(UFN_ARGS)
 {
     const char *in      = (const char *)SVAL(0);
     char       *out     = (char *)SVAL(1);
-    unsigned    out_cap = SLEN(1);    /* declared size of output buffer */
+    unsigned    out_cap = SLEN(1);
     unsigned    o       = 0;
     char        c;
 
@@ -70,32 +60,26 @@ static UFN_RET UFN_API json_escape(UFN_ARGS)
         switch (c) {
             case '"':
                 if (o + 2 >= out_cap) return UFN_BADARGS;
-                out[o++] = '\\';
-                out[o++] = '"';
+                out[o++] = '\\'; out[o++] = '"';
                 break;
             case '\\':
                 if (o + 2 >= out_cap) return UFN_BADARGS;
-                out[o++] = '\\';
-                out[o++] = '\\';
+                out[o++] = '\\'; out[o++] = '\\';
                 break;
             case '\n':
                 if (o + 2 >= out_cap) return UFN_BADARGS;
-                out[o++] = '\\';
-                out[o++] = 'n';
+                out[o++] = '\\'; out[o++] = 'n';
                 break;
             case '\r':
                 if (o + 2 >= out_cap) return UFN_BADARGS;
-                out[o++] = '\\';
-                out[o++] = 'r';
+                out[o++] = '\\'; out[o++] = 'r';
                 break;
             case '\t':
                 if (o + 2 >= out_cap) return UFN_BADARGS;
-                out[o++] = '\\';
-                out[o++] = 't';
+                out[o++] = '\\'; out[o++] = 't';
                 break;
             default:
                 if ((unsigned char)c < 0x20) {
-                    /* other control characters: emit as \u00XX */
                     if (o + 6 >= out_cap) return UFN_BADARGS;
                     sprintf(out + o, "\\u%04x", (unsigned char)c);
                     o += 6;

@@ -1,0 +1,266 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM pik_to_json.kcml
+01010 REM Extract a Picking Note from KISAM DB files and emit JSON
+01020 REM matching the structure produced by ProcessSpoolAustenTapes.py
+01030 REM
+01040 REM Usage - kcml -p pik_to_json.kcml <db_dir> <pik_note_number>
+01050 REM   db_dir         - directory containing OEPIK01, OEHDR01, OEENT01
+01060 REM   pik_note_number - numeric picking note (e.g. 114049 or 00114049)
+01070 REM
+01080 REM Field offsets are 1-based per the .def files produced by Report Writer.
+01090 REM Variable declarations
+01100 DIM ki_status, ki_sym, h_pik, h_hdr, h_ent
+01110 DIM target_pik, pik_note_field, pik_count, ent_count, tmpnum
+01120 DIM i, j, found_j
+01130 DIM ki_dataptr$6, ki_key$64
+01140 DIM pik_rec$256, hdr_rec$1200, ent_rec$400
+01150 DIM db_dir$128, pik_file$160, hdr_file$160, ent_file$160
+01160 DIM hex$16, tmp$64
+01170 DIM doc_ref$12, ord_trim$12, order_no$12
+01180 DIM acc_num$8, cus_ref$26, rep_code$6, del_method$26
+01190 DIM order_date$12, doc_date$12
+01200 DIM adv_date_raw$4
+01210 DIM inv_name$32, inv_a1$32, inv_a2$32, inv_a3$32, inv_a4$32, inv_pc$10
+01220 DIM del_name$32, del_a1$32, del_a2$32, del_a3$32, del_a4$32, del_pc$10
+01230 REM Line item buffers - up to 50 picking lines (15 chars per part slot)
+01240 DIM pik_parts$750, pik_qty(50)
+01250 REM OEENT01 match buffers - up to 100 entries per order
+01260 DIM ent_parts$1500, ent_d1$3000, ent_d2$3000, ent_tf(100)
+01265 REM EMIT_ADDR working variables
+01270 DIM ea_n, ea_first_line, ea_line_val$36
+01272 REM JSON_ESCAPE output buffer
+01274 DIM je$512
+01275 REM Validate arguments
+01280 db_dir$ = RTRIM($ARG(1))
+01310 IF db_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage - kcml -p pik_to_json.kcml <db_dir> <pik_note_number>""}"
+01330   $END
+01340 END DO
+01350 CONVERT $ARG(2) TO target_pik
+01360 IF target_pik <= 0 THEN DO
+01370   PRINT "{""error"":""Invalid picking note number""}"
+01380   $END
+01390 END DO
+01400 pik_file$ = db_dir$ & "/OEPIK01"
+01410 hdr_file$ = db_dir$ & "/OEHDR01"
+01420 ent_file$ = db_dir$ & "/OEENT01"
+01430 doc_ref$ = $PRINTF("%d", target_pik)
+02000 REM Phase 1 - Scan OEPIK01 and collect all lines for this picking note
+02010 REM OEPIK01 fields used
+02020 REM   Order Number     C  18  10  - becomes order_no$ for header lookup
+02030 REM   Part number      C  62  15  - stored in pik_parts$ buffer
+02040 REM   Picking Note No  I 110   4  0 dec - matched against target_pik
+02050 REM   Qty to Pick      I 118   8  6 dec
+02060 REM   Advice Note Date D 154   4  - document date for picking note header
+02070 CALL KI_ALLOC_HANDLE 0, 1 TO h_pik, ki_status
+02090 IF ki_status <> 0 THEN DO
+02100   PRINT "{""error"":""KI_ALLOC_HANDLE failed (PIK)""}"
+02110   $END
+02120 END DO
+02130 CALL KI_OPEN h_pik, pik_file$, "R" TO ki_status
+02140 IF ki_status <> 0 THEN DO
+02150   PRINT $PRINTF("{""error"":""Cannot open OEPIK01 (status %d)""}", ki_status)
+02160   CALL KI_FREE_HANDLE h_pik TO ki_status
+02170   $END
+02180 END DO
+02190 CALL KI_START_BEG h_pik, 1 TO ki_status
+02200 ki_sym = SYM(pik_rec$)
+02210 pik_count = 0
+02220 REPEAT
+02230   CALL KI_READ_NEXT h_pik, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02240   IF ki_status == 0 THEN DO
+02250     UNPACK (########) STR(pik_rec$, 110, 4) TO pik_note_field
+02260     IF pik_note_field == target_pik AND pik_count < 50 THEN DO
+02270       IF pik_count == 0 THEN DO
+02280         order_no$ = STR(pik_rec$, 18, 10)
+02290         adv_date_raw$ = STR(pik_rec$, 154, 4)
+02300       END DO
+02310       pik_count++
+02320       STR(pik_parts$, (pik_count-1)*15+1, 15) = STR(pik_rec$, 62, 15)
+02330       UNPACK (#########.######) STR(pik_rec$, 118, 8) TO pik_qty(pik_count)
+02340     END DO
+02350   END DO
+02360 UNTIL ki_status <> 0
+02370 CALL KI_CLOSE h_pik TO ki_status
+02380 CALL KI_FREE_HANDLE h_pik TO ki_status
+02400 IF pik_count == 0 THEN DO
+02410   PRINT "{""error"":""Picking note not found in OEPIK01""}"
+02420   $END
+02430 END DO
+02440 ord_trim$ = RTRIM(order_no$)
+03000 REM Phase 2 - Look up order header in OEHDR01 by order number
+03010 REM OEHDR01 fields used (1-based offsets from .def file)
+03020 REM   Order Number      C  18  10  - key for KI_START position
+03030 REM   SA Account        C  48   6  - accNum
+03040 REM   Customer Reference C 58  24  - cusRef
+03050 REM   Order Date        D  82   4
+03060 REM   Delivery A/c Name  C 114  30
+03070 REM   Delivery Address 1-4 C 144,174,204,234  30 each
+03080 REM   Invoice A/c Name   C 264  30
+03090 REM   Invoice Address 1-4 C 294,324,354,384  30 each
+03100 REM   Sales Rep         C 557   4  - RepCode
+03110 REM   Delivery Method   C 561  24
+03120 REM   Delivery Postcode C 1112   8
+03130 REM   Invoice Postcode  C 1120   8
+03140 CALL KI_ALLOC_HANDLE 0, 1 TO h_hdr, ki_status
+03160 IF ki_status <> 0 THEN DO
+03170   PRINT "{""error"":""KI_ALLOC_HANDLE failed (HDR)""}"
+03180   $END
+03190 END DO
+03200 CALL KI_OPEN h_hdr, hdr_file$, "R" TO ki_status
+03210 IF ki_status <> 0 THEN DO
+03220   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (status %d)""}", ki_status)
+03230   CALL KI_FREE_HANDLE h_hdr TO ki_status
+03240   $END
+03250 END DO
+03260 CALL KI_START h_hdr, ord_trim$, 1 TO ki_status
+03270 ki_sym = SYM(hdr_rec$)
+03280 CALL KI_READ_NEXT h_hdr, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03290 CALL KI_CLOSE h_hdr TO ki_status
+03300 CALL KI_FREE_HANDLE h_hdr TO ki_status
+03310 IF ki_status <> 0 THEN DO
+03320   PRINT "{""error"":""Order not found in OEHDR01""}"
+03330   $END
+03340 END DO
+03350 REM Extract scalar header fields
+03360 acc_num$ = RTRIM(STR(hdr_rec$, 48, 6))
+03370 cus_ref$ = RTRIM(STR(hdr_rec$, 58, 24))
+03380 rep_code$ = RTRIM(STR(hdr_rec$, 557, 4))
+03390 del_method$ = RTRIM(STR(hdr_rec$, 561, 24))
+03400 REM Order date (type D = 4-byte packed BCD CCYYMMDD)
+03410 HEXUNPACK STR(hdr_rec$, 82, 4) TO hex$
+03420 order_date$ = "--/--/----"
+03425 IF RTRIM(hex$) <> "00000000" THEN order_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+03430 REM Invoice address lines
+03440 inv_name$ = RTRIM(STR(hdr_rec$, 264, 30))
+03450 inv_a1$ = RTRIM(STR(hdr_rec$, 294, 30))
+03460 inv_a2$ = RTRIM(STR(hdr_rec$, 324, 30))
+03470 inv_a3$ = RTRIM(STR(hdr_rec$, 354, 30))
+03480 inv_a4$ = RTRIM(STR(hdr_rec$, 384, 30))
+03490 inv_pc$ = RTRIM(STR(hdr_rec$, 1120, 8))
+03500 REM Delivery address lines
+03510 del_name$ = RTRIM(STR(hdr_rec$, 114, 30))
+03520 del_a1$ = RTRIM(STR(hdr_rec$, 144, 30))
+03530 del_a2$ = RTRIM(STR(hdr_rec$, 174, 30))
+03540 del_a3$ = RTRIM(STR(hdr_rec$, 204, 30))
+03550 del_a4$ = RTRIM(STR(hdr_rec$, 234, 30))
+03560 del_pc$ = RTRIM(STR(hdr_rec$, 1112, 8))
+03570 REM Advice note date from OEPIK01 (saved during Phase 1)
+03580 HEXUNPACK adv_date_raw$ TO hex$
+03590 doc_date$ = "--/--/----"
+03595 IF RTRIM(hex$) <> "00000000" THEN doc_date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+04000 REM Phase 3 - Scan OEENT01 and collect entries for this order
+04010 REM OEENT01 fields used
+04020 REM   Part number    C  19  15  - match key against OEPIK01 part numbers
+04030 REM   Description 1  C  91  30
+04040 REM   Description 2  C 121  30  - maps to lineFreeText in JSON
+04050 REM   Qty to follow  I 186   8  6 dec
+04060 REM   Order Number   C 378  10  - filter - must match ord_trim$
+04070 CALL KI_ALLOC_HANDLE 0, 1 TO h_ent, ki_status
+04090 IF ki_status <> 0 THEN DO
+04100   PRINT "{""error"":""KI_ALLOC_HANDLE failed (ENT)""}"
+04110   $END
+04120 END DO
+04130 CALL KI_OPEN h_ent, ent_file$, "R" TO ki_status
+04140 IF ki_status <> 0 THEN DO
+04150   PRINT $PRINTF("{""error"":""Cannot open OEENT01 (status %d)""}", ki_status)
+04160   CALL KI_FREE_HANDLE h_ent TO ki_status
+04170   $END
+04180 END DO
+04190 CALL KI_START_BEG h_ent, 1 TO ki_status
+04200 ki_sym = SYM(ent_rec$)
+04210 ent_count = 0
+04220 REPEAT
+04230   CALL KI_READ_NEXT h_ent, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04240   IF ki_status == 0 THEN DO
+04250     IF RTRIM(STR(ent_rec$, 378, 10)) == ord_trim$ AND ent_count < 100 THEN DO
+04260       ent_count++
+04270       STR(ent_parts$, (ent_count-1)*15+1, 15) = STR(ent_rec$, 19, 15)
+04280       STR(ent_d1$, (ent_count-1)*30+1, 30) = STR(ent_rec$, 91, 30)
+04290       STR(ent_d2$, (ent_count-1)*30+1, 30) = STR(ent_rec$, 121, 30)
+04300       UNPACK (#########.######) STR(ent_rec$, 186, 8) TO ent_tf(ent_count)
+04310     END DO
+04320   END DO
+04330 UNTIL ki_status <> 0
+04340 CALL KI_CLOSE h_ent TO ki_status
+04350 CALL KI_FREE_HANDLE h_ent TO ki_status
+05000 REM Phase 4 - Emit JSON
+05010 PRINT "{"
+05030 PRINT $PRINTF("  ""docType"": ""PickingNote"",")
+05040 PRINT $PRINTF("  ""brand"": ""AustenTapes"",")
+05050 PRINT $PRINTF("  ""docRef"": ""%s"",",        doc_ref$)
+05060 PRINT $PRINTF("  ""accNum"": ""%s"",",        acc_num$)
+05065 CALL JSON_ESCAPE cus_ref$ TO je$
+05070 PRINT $PRINTF("  ""cusRef"": ""%s"",",        je$)
+05080 PRINT $PRINTF("  ""orderNumber"": ""%s"",",   ord_trim$)
+05090 PRINT $PRINTF("  ""DeliveryMethod"": ""%s"",",del_method$)
+05100 PRINT $PRINTF("  ""RepCode"": ""%s"",",       rep_code$)
+05110 PRINT $PRINTF("  ""orderDate"": ""%s"",",     order_date$)
+05120 PRINT $PRINTF("  ""documentDate"": ""%s"",",  doc_date$)
+05130 REM Invoice address array - output non-empty lines only
+05140 PRINT "  ""invoiceAddress"": ["
+05150 GOSUB 'EMIT_ADDR(inv_name$, inv_a1$, inv_a2$, inv_a3$, inv_a4$, inv_pc$)
+05160 PRINT "  ],"
+05170 REM Delivery address array
+05180 PRINT "  ""deliveryAddress"": ["
+05190 GOSUB 'EMIT_ADDR(del_name$, del_a1$, del_a2$, del_a3$, del_a4$, del_pc$)
+05200 PRINT "  ],"
+05210 REM docLines array
+05220 PRINT "  ""docLines"": ["
+05230 FOR i = 1 TO pik_count
+05240   REM Find matching OEENT01 entry for this part number
+05250   tmp$ = STR(pik_parts$, (i-1)*15+1, 15)
+05260   found_j = 0
+05270   FOR j = 1 TO ent_count
+05280     IF STR(ent_parts$, (j-1)*15+1, 15) == tmp$ THEN DO
+05290       found_j = j
+05300       j = ent_count + 1
+05310     END DO
+05320   NEXT j
+05330   IF i > 1 THEN PRINT "    ,"
+05340   PRINT "    {"
+05350   PRINT $PRINTF("      ""partno"": ""%s"",", tmp$)
+05360   IF found_j > 0 THEN DO
+05362     tmp$ = STR(ent_d1$, (found_j-1)*30+1, 30)
+05363     CALL JSON_ESCAPE tmp$ TO je$
+05370     PRINT $PRINTF("      ""description"": ""%s"",", je$)
+05380   END DO
+05390   ELSE PRINT "      ""description"": """","
+05400   PRINT $PRINTF("      ""qty"": ""%d"",", INT(pik_qty(i)))
+05410   IF found_j > 0 THEN DO
+05420     PRINT $PRINTF("      ""toFollow"": ""%d TO FOLLOW"",", INT(ent_tf(found_j)))
+05425     tmp$ = STR(ent_d2$, (found_j-1)*30+1, 30)
+05426     CALL JSON_ESCAPE tmp$ TO je$
+05430     PRINT $PRINTF("      ""lineFreeText"": ""%s""", je$)
+05440   END DO
+05450   ELSE DO
+05460     PRINT "      ""toFollow"": ""0 TO FOLLOW"","
+05470     PRINT "      ""lineFreeText"": """""
+05480   END DO
+05490   PRINT "    }"
+05500 NEXT i
+05510 PRINT "  ]"
+05520 PRINT "}"
+05530 $END
+06000 REM EMIT_ADDR - Output 6 address line candidates as a JSON string array
+06010 REM Skips empty (all-space) values. Handles the comma-between-items pattern.
+06020 DEFSUB 'EMIT_ADDR(l1$32, l2$32, l3$32, l4$32, l5$32, l6$32)
+06030 ea_first_line = 1
+06040 FOR ea_n = 1 TO 6
+06050   SELECT CASE ea_n
+06060     CASE 1 : ea_line_val$ = l1$
+06070     CASE 2 : ea_line_val$ = l2$
+06080     CASE 3 : ea_line_val$ = l3$
+06090     CASE 4 : ea_line_val$ = l4$
+06100     CASE 5 : ea_line_val$ = l5$
+06110     CASE 6 : ea_line_val$ = l6$
+06120   END SELECT
+06130   IF RTRIM(ea_line_val$) <> " " THEN DO
+06140     IF NOT ea_first_line THEN PRINT "    ,"
+06142     CALL JSON_ESCAPE ea_line_val$ TO je$
+06150     PRINT $PRINTF("    ""%s""", je$)
+06160     ea_first_line = 0
+06170   END DO
+06180 NEXT ea_n
+06200 ENDSUB

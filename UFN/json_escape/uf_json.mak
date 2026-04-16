@@ -1,25 +1,21 @@
-# uf_json.mak - Build uf_json.so for use with KCML UFN (-x flag)
+# uf_json.mak - Build uf_json.so for use with KCML 6.9 UFN (-x flag)
 #
 # Usage:
 #   make -f uf_json.mak
 #
-# Output:
-#   uf_json.so
-#
 # Load with KCML:
-#   kcml -x ./uf_json.so -p pik_to_json.kcml <db_dir> <pik_note>
+#   kcml -x ./uf_json.so -p myscript.kcml
 
 CC      = gcc
-# Add -m32 only on 64-bit hosts (Ubuntu 8.04 is native 32-bit, no flag needed)
-ARCH    := $(shell uname -m)
-M32     := $(if $(filter x86_64,$(ARCH)),-m32,)
-CFLAGS  = -O -DUNIX -fPIC -Wall $(M32)
-LDFLAGS = -shared
+CFLAGS  = -O -DUNIX -funsigned-char -fexceptions -fvisibility=hidden -pipe -pthread -m32
+LDFLAGS = -shared -Xlinker --as-needed -Xlinker --no-undefined \
+          -Xlinker --version-script -Xlinker uf_json.exp -m32
 
 LIBNAME = uf_json.so
 
-$(LIBNAME): uf_json.c uf_pub.h
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(LIBNAME) uf_json.c
+$(LIBNAME): uf_json.c uf_pub.h uf_json.exp
+	$(CC) $(CFLAGS) -c uf_json.c -o uf_json.o
+	$(CC) $(LDFLAGS) -o $(LIBNAME) uf_json.o
 
 clean:
-	rm -f $(LIBNAME)
+	rm -f $(LIBNAME) uf_json.o

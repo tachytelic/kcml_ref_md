@@ -1,0 +1,37 @@
+#!/usr/local/bin/kcml -p
+00100 $COMPLIANCE 1
+01000 REM dump_odrwcat.src - dump all live ODRWCAT records
+01010 DIM ki_status, h_cat
+01020 DIM ki_dataptr$6, ki_key$64
+01030 DIM rwc_rec$600
+01040 DIM out$512
+01050 CALL KI_ALLOC_HANDLE 0, 1 TO h_cat, ki_status
+01060 IF ki_status <> 0 THEN DO
+01070   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+01080   $END
+01090 END DO
+01100 CALL KI_OPEN h_cat, "/user1/kopen/datadict/ODRWCAT", "R" TO ki_status
+01110 IF ki_status <> 0 THEN DO
+01120   PRINT $PRINTF("{""error"":""Cannot open ODRWCAT status %d""}", ki_status)
+01130   CALL KI_FREE_HANDLE h_cat TO ki_status
+01140   $END
+01150 END DO
+01160 CALL KI_START_BEG h_cat, 1 TO ki_status
+01170 ki_sym = SYM(rwc_rec$)
+01180 REPEAT
+01190   CALL KI_READ_NEXT h_cat, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+01200   IF ki_status == 0 THEN DO
+01210     out$ = RTRIM(STR(rwc_rec$, 2, 35))
+01220     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 37, 96))
+01230     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 133, 96))
+01240     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 229, 1))
+01250     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 230, 1))
+01260     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 249, 35))
+01270     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 284, 1))
+01280     out$ = out$ & "|" & RTRIM(STR(rwc_rec$, 285, 10))
+01290     PRINT out$
+01300   END DO
+01310 UNTIL ki_status <> 0
+01320 CALL KI_CLOSE h_cat TO ki_status
+01330 CALL KI_FREE_HANDLE h_cat TO ki_status
+01340 $END
