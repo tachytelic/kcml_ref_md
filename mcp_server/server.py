@@ -5,8 +5,17 @@ Exposes live ERP data from KISAM K-Open 3 files via KCML query programs.
 
 Tools:
   find_customer     - search customers by name fragment
+  get_customer      - direct customer lookup by account code
   get_orders        - list orders for a customer account
   get_order_detail  - full order detail with line and pick status
+  get_invoices      - list open invoices for a customer account
+  get_invoice       - direct invoice lookup by invoice number
+  get_stock_item    - direct stock lookup by part number
+  find_stock        - search stock by description fragment
+  get_picking_note  - full picking note detail by note number
+  list_balances     - all accounts with outstanding balance, sorted largest first
+  get_part_orders      - all open orders containing a given part number
+  get_purchase_orders  - all purchase order lines for a given part number
 
 Transport modes:
 
@@ -48,6 +57,8 @@ KCML_DIR   = Path(__file__).parent / "kcml"
 
 SOP_DIR      = "/user1/kopen/sop"
 ACCOUNTS_DIR = "/user1/kopen/accounts"
+STOCK_DIR    = "/user1/kopen/stock"
+POP_DIR      = "/user1/kopen/pop"
 
 # ── KCML runner ───────────────────────────────────────────────────────────────
 
@@ -121,6 +132,79 @@ def get_invoice(invoice: str) -> str:
         return json.dumps({"error": "invoice parameter is required"})
     try:
         return json.dumps(run_kcml("get_invoice.src", ACCOUNTS_DIR, invoice.strip()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_stock_item(part: str) -> str:
+    if not part or not part.strip():
+        return json.dumps({"error": "part parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_stock_item.src", STOCK_DIR, part.strip().upper()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def find_stock(description: str) -> str:
+    if not description or not description.strip():
+        return json.dumps({"error": "description parameter is required"})
+    try:
+        return json.dumps(run_kcml("find_stock.src", STOCK_DIR, description.strip()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_picking_note(note: str) -> str:
+    if not note or not note.strip():
+        return json.dumps({"error": "note parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_picking_note.src", SOP_DIR, note.strip()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def list_overdue() -> str:
+    import datetime
+    today = datetime.date.today().strftime("%Y%m%d")
+    try:
+        data = run_kcml("list_overdue.src", ACCOUNTS_DIR, today)
+        if isinstance(data, list):
+            data.sort(key=lambda x: x.get("overdue_gross", 0), reverse=True)
+        return json.dumps(data, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_part_orders(part: str) -> str:
+    if not part or not part.strip():
+        return json.dumps({"error": "part parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_part_orders.src", SOP_DIR, part.strip().upper()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_purchase_orders(part: str) -> str:
+    if not part or not part.strip():
+        return json.dumps({"error": "part parameter is required"})
+    def _date_sort_key(d):
+        # Convert DD/MM/YYYY -> YYYYMMDD for sortable string; missing dates sort last
+        s = d.get("date_expected", "--/--/----")
+        if len(s) == 10 and s[2] == "/" and s[5] == "/":
+            return s[6:10] + s[3:5] + s[0:2]
+        return "00000000"
+    try:
+        data = run_kcml("get_purchase_orders.src", POP_DIR, part.strip().upper())
+        if isinstance(data, list):
+            # Outstanding qty first, then by expected date descending
+            data.sort(key=lambda x: (
+                0 if x.get("qty_outstanding", 0) > 0 else 1,
+                _date_sort_key(x),
+            ), reverse=True)
+        return json.dumps(data, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def list_balances() -> str:
+    try:
+        data = run_kcml("list_balances.src", ACCOUNTS_DIR)
+        if isinstance(data, list):
+            data.sort(key=lambda x: x.get("balance", 0), reverse=True)
+        return json.dumps(data, indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
@@ -223,6 +307,127 @@ TOOLS = [
             "required": ["invoice"],
         },
     },
+    {
+        "name": "get_stock_item",
+        "description": (
+            "Direct lookup of a single stock item by part number from the "
+            "Kerridge ERP stock master (S_STOK01). Returns description, unit "
+            "of measure, product group, selling price, qty in stock, qty "
+            "allocated, and free stock. Use this when you already have the "
+            "part number. Use find_stock to search by description."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "part": {"type": "string", "description": "Part number, e.g. '88600041'"}
+            },
+            "required": ["part"],
+        },
+    },
+    {
+        "name": "find_stock",
+        "description": (
+            "Search the Kerridge ERP stock master (S_STOK01) for parts whose "
+            "description contains the given fragment. Case-insensitive. Returns "
+            "part number, description, unit of measure, product group, selling "
+            "price, and qty in stock. Returns up to 50 matches."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "Description fragment, e.g. 'ethernet cable'"}
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "list_overdue",
+        "description": (
+            "Return all customer accounts with invoices past their due date, "
+            "sorted by total overdue amount descending. For each account shows "
+            "the account code, customer name, total overdue gross (inc VAT), "
+            "number of overdue invoices, oldest due date, and on-stop status. "
+            "Use this for credit control — e.g. 'who has the largest overdue "
+            "balances?' or 'show me all overdue accounts'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "list_balances",
+        "description": (
+            "Return all customer accounts with a non-zero outstanding balance "
+            "from the Kerridge ERP sales ledger master (SALLED01), sorted by "
+            "balance descending (largest first). Shows account code, name, "
+            "balance, credit limit, and on-stop status. Use this for credit "
+            "control overviews — e.g. 'who owes the most?' or 'show me all "
+            "accounts with outstanding balances'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_purchase_orders",
+        "description": (
+            "Return all purchase order lines for a given part number from the "
+            "Kerridge ERP purchase entries file (PCENT01). Shows the expected "
+            "delivery date, original expected date, last advice date, qty "
+            "required, qty received, and qty outstanding for each PO line. "
+            "Outstanding POs (qty_outstanding > 0) are listed first. "
+            "Use this to find when stock is due to arrive — e.g. after "
+            "get_stock_item shows a part is out of stock or on backorder."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "part": {"type": "string", "description": "Part number, e.g. '88504040'"}
+            },
+            "required": ["part"],
+        },
+    },
+    {
+        "name": "get_part_orders",
+        "description": (
+            "Find all open orders that have outstanding quantity for a given part "
+            "number. Scans the Kerridge ERP order line file (OEENT01) for lines "
+            "where qty_to_follow > 0, then looks up the order header (OEHDR01) "
+            "and checks for any picking note (OEPIK01). Returns order number, "
+            "account code, customer reference, delivery name, order date, "
+            "qty_to_follow, picking note number (if raised), and qty on pick. "
+            "Use this after get_stock_item shows allocated stock, to find which "
+            "orders that stock is committed to."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "part": {"type": "string", "description": "Part number, e.g. '88504721'"}
+            },
+            "required": ["part"],
+        },
+    },
+    {
+        "name": "get_picking_note",
+        "description": (
+            "Return full detail for a picking note from the Kerridge ERP "
+            "picking file (OEPIK01). Shows the picking note date, linked "
+            "sales order, account, delivery address, and all line items with "
+            "part number, description, qty to pick, and qty to follow. "
+            "Use this to look up a physical picking note by its number."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note": {"type": "string", "description": "Picking note number, e.g. '355918'"}
+            },
+            "required": ["note"],
+        },
+    },
 ]
 
 TOOL_FNS = {
@@ -232,6 +437,13 @@ TOOL_FNS = {
     "get_order_detail": lambda a: get_order_detail(a.get("order", "")),
     "get_invoices":     lambda a: get_invoices(a.get("account", "")),
     "get_invoice":      lambda a: get_invoice(a.get("invoice", "")),
+    "get_stock_item":   lambda a: get_stock_item(a.get("part", "")),
+    "find_stock":       lambda a: find_stock(a.get("description", "")),
+    "get_purchase_orders": lambda a: get_purchase_orders(a.get("part", "")),
+    "get_part_orders":     lambda a: get_part_orders(a.get("part", "")),
+    "get_picking_note": lambda a: get_picking_note(a.get("note", "")),
+    "list_balances":    lambda a: list_balances(),
+    "list_overdue":     lambda a: list_overdue(),
 }
 
 # ── JSON-RPC message handler ───────────────────────────────────────────────────

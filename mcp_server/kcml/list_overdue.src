@@ -1,0 +1,152 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM list_overdue.src
+01010 REM Scan SALINV01 for invoices past their due date, aggregate by account,
+01020 REM then look up customer names in SALLED01.
+01030 REM
+01040 REM Usage - kcml -x uf_json.so -p list_overdue.src <accounts_dir> <today_yyyymmdd>
+01050 REM Output - JSON array of accounts with overdue totals (unsorted - caller sorts)
+01060 REM
+01070 REM SALINV01 fields used:
+01080 REM   off=20  len=1   Transaction type (I=invoice)
+01090 REM   off=26  len=4   Due date (packed BCD -> HEXUNPACK -> YYYYMMDD)
+01100 REM   off=62  len=6   Account code
+01110 REM   off=90  len=8   Net value (packed dec, 6dp)
+01120 REM   off=106 len=8   VAT value (packed dec, 6dp)
+01130 REM
+01140 REM SALLED01 fields used:
+01150 REM   off=33  len=30  Customer name
+01160 REM   off=1379 len=1  On-stop flag
+01200 DIM ki_status, ki_sym, h_inv, h_cust
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM inv_rec$300, cust_rec$2100
+01230 DIM accounts_dir$128, inv_file$160, cust_file$160
+01240 DIM today$10, ttype$2, due_hex$10, acc$8, padded_acc$10
+01250 DIM net_val, vat_val, gross
+01260 REM Per-account accumulator arrays (max 500 unique accounts)
+01270 DIM acc_n
+01280 DIM acc_codes$4000
+01290 DIM acc_total(500)
+01300 DIM acc_count(500)
+01310 DIM acc_oldest$4000
+01320 DIM k, found_idx, slot
+01330 REM Output helpers
+01340 DIM name$32, stop_flag$2, on_stop_str$6
+01350 DIM je_name$64, je_acc$12
+01360 DIM first_rec
+01400 accounts_dir$ = RTRIM($ARG(1))
+01410 IF accounts_dir$ == " " THEN DO
+01420   PRINT "{""error"":""Usage: list_overdue <accounts_dir> <today_yyyymmdd>""}"
+01430   $END
+01440 END DO
+01450 today$ = RTRIM($ARG(2))
+01460 IF today$ == " " THEN DO
+01470   PRINT "{""error"":""Today date (YYYYMMDD) is required""}"
+01480   $END
+01490 END DO
+01500 inv_file$  = accounts_dir$ & "/SALINV01"
+01510 cust_file$ = accounts_dir$ & "/SALLED01"
+02000 REM Phase 1 - Scan SALINV01 and accumulate per-account overdue totals
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h_inv, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (INV)""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h_inv, inv_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALINV01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h_inv TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h_inv, 1 TO ki_status
+02130 ki_sym = SYM(inv_rec$)
+02140 acc_n = 0
+02150 REPEAT
+02160   CALL KI_READ_NEXT h_inv, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02170   IF ki_status == 0 THEN DO
+02180     ttype$ = STR(inv_rec$, 20, 1)
+02190     IF ttype$ == "I" THEN DO
+02200       HEXUNPACK STR(inv_rec$, 26, 4) TO due_hex$
+02210       IF RTRIM(due_hex$) < today$ THEN DO
+02220         acc$ = RTRIM(STR(inv_rec$, 62, 6))
+02230         UNPACK (#########.######) STR(inv_rec$, 90, 8) TO net_val
+02240         UNPACK (#########.######) STR(inv_rec$, 106, 8) TO vat_val
+02250         gross = net_val + vat_val
+02260         REM Find or create account slot
+02270         found_idx = 0
+02280         FOR k = 1 TO acc_n
+02290           IF STR(acc_codes$, (k-1)*8+1, 8) == acc$ THEN found_idx = k
+02300         NEXT k
+02310         IF found_idx == 0 AND acc_n < 500 THEN DO
+02320           acc_n++
+02330           found_idx = acc_n
+02340           STR(acc_codes$, (found_idx-1)*8+1, 8) = acc$
+02350           STR(acc_oldest$, (found_idx-1)*8+1, 8) = RTRIM(due_hex$)
+02360         END DO
+02370         IF found_idx > 0 THEN DO
+02380           acc_total(found_idx) = acc_total(found_idx) + gross
+02390           acc_count(found_idx) = acc_count(found_idx) + 1
+02400           REM Track oldest (smallest) due date
+02410           IF RTRIM(due_hex$) < STR(acc_oldest$, (found_idx-1)*8+1, 8) THEN DO
+02420             STR(acc_oldest$, (found_idx-1)*8+1, 8) = RTRIM(due_hex$)
+02430           END DO
+02440         END DO
+02450       END DO
+02460     END DO
+02470   END DO
+02480 UNTIL ki_status <> 0
+02490 CALL KI_CLOSE h_inv TO ki_status
+02500 CALL KI_FREE_HANDLE h_inv TO ki_status
+03000 REM Phase 2 - Look up customer names from SALLED01
+03010 CALL KI_ALLOC_HANDLE 0, 1 TO h_cust, ki_status
+03020 IF ki_status <> 0 THEN DO
+03030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (CUST)""}"
+03040   $END
+03050 END DO
+03060 CALL KI_OPEN h_cust, cust_file$, "R" TO ki_status
+03070 IF ki_status <> 0 THEN DO
+03080   PRINT $PRINTF("{""error"":""Cannot open SALLED01 (status %d)""}", ki_status)
+03090   CALL KI_FREE_HANDLE h_cust TO ki_status
+03100   $END
+03110 END DO
+03120 ki_sym = SYM(cust_rec$)
+04000 REM Phase 3 - Emit JSON
+04010 first_rec = 1
+04020 PRINT "["
+04030 FOR k = 1 TO acc_n
+04040   acc$ = RTRIM(STR(acc_codes$, (k-1)*8+1, 8))
+04050   CALL KI_START h_cust, acc$, 1 TO ki_status
+04060   IF ki_status == 0 THEN CALL KI_READ_NEXT h_cust, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04070   name$      = " "
+04080   stop_flag$ = " "
+04090   IF ki_status == 0 THEN DO
+04100     IF RTRIM(ki_key$) == acc$ THEN DO
+04110       name$      = STR(cust_rec$, 33, 30)
+04120       stop_flag$ = STR(cust_rec$, 1379, 1)
+04130     END DO
+04140   END DO
+04150   on_stop_str$ = "false"
+04160   IF stop_flag$ == "Y" THEN on_stop_str$ = "true"
+04170   CALL JSON_ESCAPE name$ TO je_name$
+04180   CALL JSON_ESCAPE acc$ TO je_acc$
+04190   REM Format oldest due date YYYYMMDD -> DD/MM/YYYY
+04200   DIM od$10, oy$6, om$4, od_d$4
+04210   oy$  = STR(acc_oldest$, (k-1)*8+1, 4)
+04220   om$  = STR(acc_oldest$, (k-1)*8+5, 2)
+04230   od_d$ = STR(acc_oldest$, (k-1)*8+7, 2)
+04240   od$  = od_d$ & "/" & om$ & "/" & oy$
+04250   IF NOT first_rec THEN PRINT "  ,"
+04260   PRINT "  {"
+04270   PRINT $PRINTF("    ""account"": ""%s"",", je_acc$)
+04280   PRINT $PRINTF("    ""name"": ""%s"",", je_name$)
+04290   PRINT $PRINTF("    ""overdue_gross"": %.2f,", acc_total(k))
+04300   PRINT $PRINTF("    ""invoice_count"": %d,", acc_count(k))
+04310   PRINT $PRINTF("    ""oldest_due"": ""%s"",", od$)
+04320   PRINT $PRINTF("    ""on_stop"": %s", on_stop_str$)
+04330   PRINT "  }"
+04340   first_rec = 0
+04350 NEXT k
+04360 PRINT "]"
+04370 CALL KI_CLOSE h_cust TO ki_status
+04380 CALL KI_FREE_HANDLE h_cust TO ki_status
+04390 $END

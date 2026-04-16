@@ -1,0 +1,73 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM list_balances.src
+01010 REM Return all customer accounts with a non-zero balance from SALLED01
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p list_balances.src <accounts_dir>
+01040 REM Output - JSON array of accounts (unsorted - caller sorts by balance)
+01050 REM
+01060 REM SALLED01 fields used:
+01070 REM   Customer Name      C  off=  33  len=  30
+01080 REM   Current Balance    I  off= 416  len=   8  dec=6  signed
+01090 REM   Credit Limit       I  off= 432  len=   8  dec=6
+01100 REM   Stop Invoices?     C  off=1379  len=   1
+01110 REM   B-tree key = account code
+01200 DIM ki_status, ki_sym, h
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$2100
+01230 DIM accounts_dir$128, cust_file$160
+01240 DIM name$32, acc$8, stop_flag$2, on_stop_str$6
+01250 DIM balance, credit_lim
+01260 DIM je_name$64, je_acc$12
+01270 DIM first_rec
+01300 accounts_dir$ = RTRIM($ARG(1))
+01310 IF accounts_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage: list_balances <accounts_dir>""}"
+01330   $END
+01340 END DO
+01400 cust_file$ = accounts_dir$ & "/SALLED01"
+02000 REM Open SALLED01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, cust_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALLED01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 first_rec = 1
+02210 PRINT "["
+02220 REPEAT
+02230   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02240   IF ki_status == 0 THEN DO
+02250     UNPACK (#########.######) STR(rec$, 416, 8) TO balance
+02260     IF balance <> 0 THEN DO
+02270       name$      = STR(rec$, 33, 30)
+02280       acc$       = RTRIM(ki_key$)
+02290       stop_flag$ = STR(rec$, 1379, 1)
+02300       UNPACK (#########.######) STR(rec$, 432, 8) TO credit_lim
+02310       on_stop_str$ = "false"
+02320       IF stop_flag$ == "Y" THEN on_stop_str$ = "true"
+02330       IF NOT first_rec THEN PRINT "  ,"
+02340       CALL JSON_ESCAPE name$ TO je_name$
+02350       CALL JSON_ESCAPE acc$ TO je_acc$
+02360       PRINT "  {"
+02370       PRINT $PRINTF("    ""account"": ""%s"",", je_acc$)
+02380       PRINT $PRINTF("    ""name"": ""%s"",", je_name$)
+02390       PRINT $PRINTF("    ""balance"": %.2f,", balance)
+02400       PRINT $PRINTF("    ""credit_limit"": %.2f,", credit_lim)
+02410       PRINT $PRINTF("    ""on_stop"": %s", on_stop_str$)
+02420       PRINT "  }"
+02430       first_rec = 0
+02440     END DO
+02450   END DO
+02460 UNTIL ki_status <> 0
+02470 PRINT "]"
+02480 CALL KI_CLOSE h TO ki_status
+02490 CALL KI_FREE_HANDLE h TO ki_status
+02500 $END

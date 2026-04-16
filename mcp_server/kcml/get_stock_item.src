@@ -1,0 +1,92 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_stock_item.src
+01010 REM Direct key lookup of a stock item by part number in S_STOK01
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_stock_item.src <stock_dir> <part_number>
+01040 REM Output - JSON object with stock detail, or error if not found
+01050 REM
+01060 REM Field offsets (from libPF unpack_stock / DD verification):
+01070 REM   off=  37  len= 42  Description
+01080 REM   off=  82  len=  3  Product group
+01090 REM   off=  87  len=  2  Unit of measure
+01100 REM   off= 513  len=  8  pf_q(1)  qty in stock (packed dec, 6dp)
+01110 REM   off= 529  len=  8  pf_q(3)  qty allocated (packed dec, 6dp)
+01120 REM   off= 577  len=  8  Selling price (packed dec, 6dp)
+01130 REM   B-tree key = part number (space-padded to 16 chars)
+01200 DIM ki_status, ki_sym, h
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$700
+01230 DIM stock_dir$128, stock_file$160
+01240 DIM part$18, uom$4, pgrp$6
+01250 DIM desc$44, je_desc$90, je_part$36
+01260 DIM qty_stock, qty_alloc, sell_price, qty_free
+01300 stock_dir$ = RTRIM($ARG(1))
+01310 IF stock_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage: get_stock_item <stock_dir> <part_number>""}"
+01330   $END
+01340 END DO
+01350 part$ = $UPPER(RTRIM($ARG(2)))
+01360 IF part$ == " " THEN DO
+01370   PRINT "{""error"":""Part number is required""}"
+01380   $END
+01390 END DO
+01400 stock_file$ = stock_dir$ & "/S_STOK01"
+02000 REM Open S_STOK01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, stock_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open S_STOK01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 REM Direct key lookup
+02130 ki_sym = SYM(rec$)
+02140 CALL KI_START h, part$, 1 TO ki_status
+02150 IF ki_status <> 0 THEN DO
+02160   PRINT $PRINTF("{""error"":""Part %s not found""}", part$)
+02170   CALL KI_CLOSE h TO ki_status
+02180   CALL KI_FREE_HANDLE h TO ki_status
+02190   $END
+02200 END DO
+02210 CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02220 IF ki_status <> 0 THEN DO
+02230   PRINT $PRINTF("{""error"":""Part %s not found""}", part$)
+02240   CALL KI_CLOSE h TO ki_status
+02250   CALL KI_FREE_HANDLE h TO ki_status
+02260   $END
+02270 END DO
+02280 REM Verify we got the right record (KI_START positions to >= key)
+02290 IF RTRIM(ki_key$) <> part$ THEN DO
+02300   PRINT $PRINTF("{""error"":""Part %s not found""}", part$)
+02310   CALL KI_CLOSE h TO ki_status
+02320   CALL KI_FREE_HANDLE h TO ki_status
+02330   $END
+02340 END DO
+02350 REM Extract fields
+02360 desc$ = RTRIM(STR(rec$, 37, 42))
+02370 pgrp$ = RTRIM(STR(rec$, 82, 3))
+02380 uom$ = RTRIM(STR(rec$, 87, 2))
+02390 UNPACK (#########.######) STR(rec$, 513, 8) TO qty_stock
+02400 UNPACK (#########.######) STR(rec$, 529, 8) TO qty_alloc
+02410 UNPACK (#########.######) STR(rec$, 577, 8) TO sell_price
+02420 qty_free = qty_stock - qty_alloc
+02430 CALL JSON_ESCAPE desc$ TO je_desc$
+02440 CALL JSON_ESCAPE part$ TO je_part$
+02450 PRINT "{"
+02460 PRINT $PRINTF("  ""part"": ""%s"",", je_part$)
+02470 PRINT $PRINTF("  ""description"": ""%s"",", je_desc$)
+02480 PRINT $PRINTF("  ""uom"": ""%s"",", uom$)
+02490 PRINT $PRINTF("  ""product_group"": ""%s"",", pgrp$)
+02500 PRINT $PRINTF("  ""sell_price"": %.2f,", sell_price)
+02510 PRINT $PRINTF("  ""qty_in_stock"": %.0f,", qty_stock)
+02520 PRINT $PRINTF("  ""qty_allocated"": %.0f,", qty_alloc)
+02530 PRINT $PRINTF("  ""qty_free"": %.0f", qty_free)
+02540 PRINT "}"
+02550 CALL KI_CLOSE h TO ki_status
+02560 CALL KI_FREE_HANDLE h TO ki_status
+02570 $END

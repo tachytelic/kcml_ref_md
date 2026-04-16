@@ -1,0 +1,89 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM find_stock.src
+01010 REM Search S_STOK01 for parts matching a description fragment (case-insensitive)
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p find_stock.src <stock_dir> <description_fragment>
+01040 REM Output - JSON array of matching parts (max 50 results)
+01050 REM
+01060 REM Field offsets (from libPF / DD):
+01070 REM   off=  37  len= 42  Description
+01080 REM   off=  82  len=  3  Product group
+01090 REM   off=  87  len=  2  Unit of measure
+01100 REM   off= 513  len=  8  pf_q(1) qty in stock (packed dec, 6dp)
+01110 REM   off= 577  len=  8  Selling price (packed dec, 6dp)
+01200 DIM ki_status, ki_sym, h
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$700
+01230 DIM stock_dir$128, stock_file$160
+01240 DIM search_u$44, desc$44, desc_u$44, part$18, uom$4, pgrp$6
+01250 DIM je_desc$90, je_part$36
+01260 DIM sell_price, qty_stock
+01270 DIM first_match, pos, slen, found, count
+01300 stock_dir$ = RTRIM($ARG(1))
+01310 IF stock_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage: find_stock <stock_dir> <description_fragment>""}"
+01330   $END
+01340 END DO
+01350 search_u$ = $ARG(2)
+01360 IF RTRIM(search_u$) == " " THEN DO
+01370   PRINT "{""error"":""Description fragment is required""}"
+01380   $END
+01390 END DO
+01400 search_u$ = $UPPER(search_u$)
+01410 slen = LEN(search_u$)
+01420 stock_file$ = stock_dir$ & "/S_STOK01"
+02000 REM Open S_STOK01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, stock_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open S_STOK01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 REM Scan all records - descriptions stored in mixed case, uppercase for comparison
+02210 first_match = 1
+02220 count = 0
+02230 PRINT "["
+02240 REPEAT
+02250   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02260   IF ki_status == 0 THEN DO
+02270     desc$ = STR(rec$, 37, 42)
+02280     desc_u$ = $UPPER(desc$)
+02290     REM Sliding substring search
+02300     found = 0
+02310     FOR pos = 1 TO 42 - slen + 1
+02320       IF STR(desc_u$, pos, slen) == STR(search_u$, 1, slen) THEN found = pos
+02330     NEXT pos
+02340     IF found > 0 THEN DO
+02350       part$ = RTRIM(ki_key$)
+02360       uom$ = RTRIM(STR(rec$, 87, 2))
+02370       pgrp$ = RTRIM(STR(rec$, 82, 3))
+02380       UNPACK (#########.######) STR(rec$, 513, 8) TO qty_stock
+02390       UNPACK (#########.######) STR(rec$, 577, 8) TO sell_price
+02400       IF NOT first_match THEN PRINT "  ,"
+02410       CALL JSON_ESCAPE desc$ TO je_desc$
+02420       CALL JSON_ESCAPE part$ TO je_part$
+02430       PRINT "  {"
+02440       PRINT $PRINTF("    ""part"": ""%s"",", je_part$)
+02450       PRINT $PRINTF("    ""description"": ""%s"",", je_desc$)
+02460       PRINT $PRINTF("    ""uom"": ""%s"",", uom$)
+02470       PRINT $PRINTF("    ""product_group"": ""%s"",", pgrp$)
+02480       PRINT $PRINTF("    ""sell_price"": %.2f,", sell_price)
+02490       PRINT $PRINTF("    ""qty_in_stock"": %.0f", qty_stock)
+02500       PRINT "  }"
+02510       first_match = 0
+02520       count++
+02530     END DO
+02540   END DO
+02550 UNTIL ki_status <> 0 OR count >= 50
+02560 PRINT "]"
+02570 CALL KI_CLOSE h TO ki_status
+02580 CALL KI_FREE_HANDLE h TO ki_status
+02590 $END
