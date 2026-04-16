@@ -8,46 +8,55 @@ Tools:
   get_orders        - list orders for a customer account
   get_order_detail  - full order detail with line and pick status
 
-Usage (stdio mode, for Claude Desktop):
-  python3 server.py
+Transport modes:
 
-Usage (HTTP/SSE mode, for multi-user network access):
-  python3 server.py --http --port 8765
+  stdio (Claude Desktop local config):
+    python3 server.py
+
+  HTTP/SSE (Claude Desktop via SSH tunnel or network):
+    python3 server.py --http --port 8765
+
+    Claude Desktop config (claude_desktop_config.json):
+      {
+        "mcpServers": {
+          "kerridge-erp": {
+            "url": "http://localhost:8765"
+          }
+        }
+      }
+
+    SSH tunnel (run on your LOCAL machine):
+      ssh -L 8765:localhost:8765 user@erpserver
 """
 
 import argparse
 import json
 import subprocess
 import sys
-import os
+import uuid
+import queue
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-KCML_BIN    = "/usr/lib/kcml/kcml"
-UF_JSON_SO  = str(Path(__file__).parent.parent / "UFN/json_escape/uf_json.so")
-KCML_DIR    = Path(__file__).parent / "kcml"
+KCML_BIN   = "/usr/lib/kcml/kcml"
+UF_JSON_SO = str(Path(__file__).parent.parent / "UFN/json_escape/uf_json.so")
+KCML_DIR   = Path(__file__).parent / "kcml"
 
 SOP_DIR      = "/user1/kopen/sop"
 ACCOUNTS_DIR = "/user1/kopen/accounts"
 
 # ── KCML runner ───────────────────────────────────────────────────────────────
 
-def run_kcml(script: str, *args: str, timeout: int = 30) -> dict | list:
-    """
-    Run a KCML script with the JSON_ESCAPE UFN loaded.
-    Returns parsed JSON output, or raises RuntimeError on failure.
-    """
+def run_kcml(script: str, *args: str, timeout: int = 30):
     script_path = KCML_DIR / script
     cmd = [KCML_BIN, "-x", UF_JSON_SO, "-p", str(script_path)] + list(args)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"KCML script {script} timed out after {timeout}s")
 
@@ -58,7 +67,7 @@ def run_kcml(script: str, *args: str, timeout: int = 30) -> dict | list:
     try:
         data = json.loads(output)
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"KCML script {script} produced invalid JSON: {e}\nOutput: {output[:500]}")
+        raise RuntimeError(f"Invalid JSON from {script}: {e}\nOutput: {output[:300]}")
 
     if isinstance(data, dict) and "error" in data:
         raise RuntimeError(data["error"])
@@ -68,49 +77,30 @@ def run_kcml(script: str, *args: str, timeout: int = 30) -> dict | list:
 # ── Tool implementations ───────────────────────────────────────────────────────
 
 def find_customer(name: str) -> str:
-    """
-    Search for customers by name fragment (case-insensitive).
-    Returns a JSON array of matching customers with account code, name,
-    current balance, credit limit, and on-stop flag.
-    """
     if not name or not name.strip():
         return json.dumps({"error": "name parameter is required"})
     try:
-        results = run_kcml("find_customer.src", ACCOUNTS_DIR, name.strip())
-        return json.dumps(results, indent=2)
+        return json.dumps(run_kcml("find_customer.src", ACCOUNTS_DIR, name.strip()), indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
-
 def get_orders(account: str) -> str:
-    """
-    Return all active orders for a customer account code.
-    Each order shows order number, date, customer reference,
-    delivery name/postcode, and order value.
-    """
     if not account or not account.strip():
         return json.dumps({"error": "account parameter is required"})
     try:
-        results = run_kcml("get_orders.src", SOP_DIR, account.strip().upper())
-        return json.dumps(results, indent=2)
+        return json.dumps(run_kcml("get_orders.src", SOP_DIR, account.strip().upper()), indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
-
 def get_order_detail(order: str) -> str:
-    """
-    Return full detail for a single order including all lines, quantities,
-    prices, and pick status (picked vs still outstanding) from OEPIK01.
-    """
     if not order or not order.strip():
         return json.dumps({"error": "order parameter is required"})
     try:
-        result = run_kcml("get_order_detail.src", SOP_DIR, order.strip())
-        return json.dumps(result, indent=2)
+        return json.dumps(run_kcml("get_order_detail.src", SOP_DIR, order.strip()), indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
-# ── MCP protocol ──────────────────────────────────────────────────────────────
+# ── MCP tool definitions ───────────────────────────────────────────────────────
 
 TOOLS = [
     {
@@ -125,10 +115,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Name fragment to search for, e.g. 'smith' or 'acme'",
-                }
+                "name": {"type": "string", "description": "Name fragment, e.g. 'smith' or 'namco'"}
             },
             "required": ["name"],
         },
@@ -138,16 +125,12 @@ TOOLS = [
         "description": (
             "Return all active sales orders for a customer account code from "
             "the Kerridge ERP order header file (OEHDR01). Shows order number, "
-            "date, customer reference, delivery name and postcode, and order value. "
-            "Use find_customer first if you only have a customer name."
+            "date, customer reference, delivery name/postcode, and order value."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "account": {
-                    "type": "string",
-                    "description": "Customer account code, e.g. 'AC001' or 'P6750'",
-                }
+                "account": {"type": "string", "description": "Customer account code, e.g. 'P6750'"}
             },
             "required": ["account"],
         },
@@ -155,20 +138,14 @@ TOOLS = [
     {
         "name": "get_order_detail",
         "description": (
-            "Return full detail for a single sales order: header fields plus "
-            "every order line with part number, description, unit of measure, "
-            "price, qty to follow, qty picked, and qty still outstanding. "
-            "Pick status comes from OEPIK01 — qty_picked > 0 means the line "
-            "has been assigned to a picking note; qty_outstanding > 0 means "
-            "items are still waiting to be picked."
+            "Return full detail for a single sales order: header, all lines "
+            "with part number, description, unit of measure, price, and pick "
+            "status (qty_picked vs qty_outstanding from OEPIK01)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "order": {
-                    "type": "string",
-                    "description": "Sales order number, e.g. '700002'",
-                }
+                "order": {"type": "string", "description": "Sales order number, e.g. '700002'"}
             },
             "required": ["order"],
         },
@@ -176,20 +153,20 @@ TOOLS = [
 ]
 
 TOOL_FNS = {
-    "find_customer":   lambda args: find_customer(args.get("name", "")),
-    "get_orders":      lambda args: get_orders(args.get("account", "")),
-    "get_order_detail":lambda args: get_order_detail(args.get("order", "")),
+    "find_customer":    lambda a: find_customer(a.get("name", "")),
+    "get_orders":       lambda a: get_orders(a.get("account", "")),
+    "get_order_detail": lambda a: get_order_detail(a.get("order", "")),
 }
 
+# ── JSON-RPC message handler ───────────────────────────────────────────────────
 
-def handle_message(msg: dict) -> dict | None:
+def handle_message(msg: dict):
     method = msg.get("method")
     msg_id = msg.get("id")
 
     if method == "initialize":
         return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
+            "jsonrpc": "2.0", "id": msg_id,
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
@@ -201,50 +178,35 @@ def handle_message(msg: dict) -> dict | None:
         return None
 
     if method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {"tools": TOOLS},
-        }
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": TOOLS}}
 
     if method == "tools/call":
-        params   = msg.get("params", {})
+        params    = msg.get("params", {})
         tool_name = params.get("name")
         tool_args = params.get("arguments", {})
-
         if tool_name not in TOOL_FNS:
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
-            }
-
+            return {"jsonrpc": "2.0", "id": msg_id,
+                    "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}}
         try:
             output = TOOL_FNS[tool_name](tool_args)
         except Exception as e:
             output = json.dumps({"error": str(e)})
-
         return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "content": [{"type": "text", "text": output}],
-                "isError": False,
-            },
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"content": [{"type": "text", "text": output}], "isError": False},
         }
 
-    # Unknown method — return error for requests, ignore for notifications
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+
     if msg_id is not None:
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "error": {"code": -32601, "message": f"Method not found: {method}"},
-        }
+        return {"jsonrpc": "2.0", "id": msg_id,
+                "error": {"code": -32601, "message": f"Method not found: {method}"}}
     return None
 
+# ── stdio transport ────────────────────────────────────────────────────────────
 
 def run_stdio():
-    """Run in stdio mode (for Claude Desktop local config)."""
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -253,65 +215,156 @@ def run_stdio():
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-
         response = handle_message(msg)
         if response is not None:
             print(json.dumps(response), flush=True)
 
+# ── HTTP / SSE transport ───────────────────────────────────────────────────────
+#
+# Claude Desktop HTTP-MCP protocol:
+#   GET  /sse              → long-lived SSE stream; first event announces POST endpoint
+#   POST /messages?sessionId=X → JSON-RPC request; response sent back via SSE stream
+#   GET  /health           → {"status":"ok"}
+#
+# Each SSE client gets a session id and a queue. The POST handler looks up the
+# queue by session id and pushes the JSON-RPC response onto it; the SSE handler
+# drains the queue and writes events to the open connection.
 
-def run_http(port: int):
-    """Run in HTTP/SSE mode (for multi-user network access)."""
-    try:
-        from http.server import BaseHTTPRequestHandler, HTTPServer
-        import threading
-    except ImportError:
-        print("HTTP mode requires Python standard library (http.server)", file=sys.stderr)
-        sys.exit(1)
+# session_id -> queue.Queue
+_sessions: dict[str, queue.Queue] = {}
+_sessions_lock = threading.Lock()
 
-    class MCPHandler(BaseHTTPRequestHandler):
-        def log_message(self, format, *args):
-            pass  # suppress access log
 
-        def do_POST(self):
-            length = int(self.headers.get("Content-Length", 0))
-            body   = self.rfile.read(length)
+class MCPHandler(BaseHTTPRequestHandler):
+
+    def log_message(self, fmt, *args):
+        pass  # suppress request log
+
+    # ── GET ──────────────────────────────────────────────────────────────────
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/health":
+            self._json_response(200, {"status": "ok"})
+            return
+
+        if parsed.path == "/sse":
+            self._handle_sse()
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def _handle_sse(self):
+        session_id = str(uuid.uuid4())
+        q: queue.Queue = queue.Queue()
+        with _sessions_lock:
+            _sessions[session_id] = q
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        # Tell the client where to POST requests
+        endpoint = f"/messages?sessionId={session_id}"
+        self._sse_write(f"event: endpoint\ndata: {endpoint}\n\n")
+
+        # Stream responses until client disconnects
+        try:
+            while True:
+                try:
+                    payload = q.get(timeout=15)
+                    if payload is None:          # shutdown signal
+                        break
+                    data = json.dumps(payload)
+                    self._sse_write(f"event: message\ndata: {data}\n\n")
+                except queue.Empty:
+                    self._sse_write(": ping\n\n")  # keepalive comment
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            with _sessions_lock:
+                _sessions.pop(session_id, None)
+
+    def _sse_write(self, text: str):
+        self.wfile.write(text.encode())
+        self.wfile.flush()
+
+    # ── POST ─────────────────────────────────────────────────────────────────
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/messages":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        params = parse_qs(parsed.query)
+        session_id = (params.get("sessionId") or [""])[0]
+
+        with _sessions_lock:
+            q = _sessions.get(session_id)
+
+        if q is None:
+            self._json_response(400, {"error": f"Unknown sessionId: {session_id}"})
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        body   = self.rfile.read(length)
+
+        # Acknowledge immediately — response comes via SSE
+        self.send_response(202)
+        self.send_header("Content-Length", "0")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        # Process in a thread so we don't block the HTTP server
+        def process():
             try:
                 msg = json.loads(body)
             except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
                 return
-
             response = handle_message(msg)
-            payload  = json.dumps(response).encode() if response else b"{}"
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", len(payload))
-            self.end_headers()
-            self.wfile.write(payload)
+            if response is not None:
+                q.put(response)
 
-        def do_GET(self):
-            if self.path == "/health":
-                payload = b'{"status":"ok"}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", len(payload))
-                self.end_headers()
-                self.wfile.write(payload)
-            else:
-                self.send_response(404)
-                self.end_headers()
+        threading.Thread(target=process, daemon=True).start()
 
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _json_response(self, code: int, data):
+        payload = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", len(payload))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+def run_http(port: int):
     server = HTTPServer(("0.0.0.0", port), MCPHandler)
-    print(f"Kerridge ERP MCP server listening on port {port}", file=sys.stderr)
+    print(f"Kerridge ERP MCP server listening on port {port}", file=sys.stderr, flush=True)
+    print(f"SSE endpoint : http://localhost:{port}/sse", file=sys.stderr, flush=True)
+    print(f"Health check : http://localhost:{port}/health", file=sys.stderr, flush=True)
     server.serve_forever()
-
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kerridge ERP MCP Server")
-    parser.add_argument("--http", action="store_true", help="Run in HTTP mode instead of stdio")
+    parser.add_argument("--http", action="store_true", help="HTTP/SSE mode (default: stdio)")
     parser.add_argument("--port", type=int, default=8765, help="HTTP port (default 8765)")
     args = parser.parse_args()
 
