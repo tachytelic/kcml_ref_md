@@ -100,7 +100,8 @@ Claude Desktop `claude_desktop_config.json`:
 | `get_stock_item` | `part` | Direct lookup in `S_STOK01`. Description, UOM, product group, sell price, qty in stock, qty allocated, qty free. |
 | `find_stock` | `description` (fragment) | Case-insensitive description search. Up to 50 matches. |
 | `get_part_orders` | `part` | All sales order lines where this part has `qty_to_follow > 0` (`OEENT01` + `OEHDR01`). Shows which orders the allocated stock is committed to, plus picking note if one has been raised. |
-| `get_part_sales` | `part`, `months` (opt, default 12) | Invoiced sales history for a part from `OEMSA01` (600K+ record sales analysis file). Keyed access — fast. Returns each sale line: date, account, rep, order, qty, sales value, cost, customer ref. Sorted most-recent first, capped at 500 lines. |
+| `get_account_sales` | `account`, `months` (opt, default 12) | Invoiced sales history for a customer account from `OEMSA01`. Uses the account-keyed index (path 2) — fast. Returns each sale line: date, part, description, rep, order, qty, sales value, cost, customer ref. Sorted most-recent first, capped at 500 lines. |
+| `get_part_sales` | `part`, `months` (opt, default 12) | Invoiced sales history for a part from `OEMSA01`. Uses the part-keyed index (path 1) — fast. Returns each sale line: date, account, rep, order, qty, sales value, cost, customer ref. Sorted most-recent first, capped at 500 lines. |
 
 ### Purchase order tools
 
@@ -147,8 +148,10 @@ get_purchase_orders("88504040") → get_purchase_order("64577")  [full PO detail
 
 **Sales history / margin analysis**
 ```
-get_part_sales("88504040")           [last 12 months — who bought it, qty, value, cost]
+get_part_sales("88504040")            [last 12 months — who bought it, qty, value, cost]
 get_part_sales("88504040", months=24) [extend window to 2 years]
+get_account_sales("B1350")            [everything this account bought in the last year]
+find_customer("namco") → get_account_sales("Z8009") [customer lookup then full history]
 ```
 
 **Warehouse / picking**
@@ -174,6 +177,7 @@ mcp_server/
     ├── get_stock_item.src
     ├── find_stock.src
     ├── get_part_orders.src
+    ├── get_account_sales.src
     ├── get_part_sales.src
     ├── get_purchase_orders.src
     ├── get_purchase_order.src

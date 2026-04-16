@@ -1,0 +1,128 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_account_sales.src
+01010 REM Sales history for a given customer account from OEMSA01.
+01020 REM Uses path 2 (account-keyed index) for fast lookup.
+01030 REM Key on path 2 = account (5) + part (15) + sequence (3).
+01040 REM Filters to records on or after cutoff_yyyymmdd.
+01050 REM Caps at 500 records; Python side sorts by date descending.
+01060 REM
+01070 REM Usage -- kcml -x uf_json.so -p get_account_sales.src <sop_sa_dir> <account> <cutoff_yyyymmdd>
+01080 REM Output -- JSON array of sale line objects
+01090 REM
+01100 REM OEMSA01/OEMSA11 fields used (offsets verified by live probe)
+01110 REM   REC CREATED ON         D  off=  10  len=   4  (invoice date)
+01120 REM   Part number            C  off=  18  len=  15
+01130 REM   Description            C  off=  42  len=  30
+01140 REM   Delivery A/c           C  off= 115  len=   5
+01150 REM   Invoice A/c            C  off= 125  len=   5
+01160 REM   Sales Rep              C  off= 139  len=   4
+01170 REM   Order Number           C  off= 143  len=  10
+01180 REM   Quantity               I  off= 153  len=   8  dec=6
+01190 REM   Sales Value            I  off= 161  len=   8  dec=6
+01200 REM   Cost of Sale           I  off= 169  len=   8  dec=6
+01210 REM   Order Type             C  off= 193  len=   1
+01220 REM   Customer Reference     C  off= 194  len=  24
+01230 REM
+01240 REM KISAM path 2 key = account (5) + part (15) + sequence (3)
+01250 REM
+01300 DIM ki_status, ki_sym, h
+01310 DIM ki_dataptr$6, ki_key$128
+01320 DIM rec$512
+01330 DIM sop_sa_dir$128, oemsa_file$160
+01340 DIM acct_arg$6, acct_key$5
+01350 DIM cutoff$10
+01360 DIM cutoff_num, rec_date_num
+01370 DIM hex$20, date_str$12
+01380 DIM qty, sales_val, cost_val
+01390 DIM inv_ac$6
+01400 DIM count, first_rec
+01410 DIM je$64
+01500 sop_sa_dir$ = RTRIM($ARG(1))
+01510 IF sop_sa_dir$ == " " THEN DO
+01520   PRINT "{""error"":""Usage: get_account_sales <sop_sa_dir> <account> <cutoff_yyyymmdd>""}"
+01530   $END
+01540 END DO
+01550 acct_arg$ = RTRIM($ARG(2))
+01560 IF acct_arg$ == " " THEN DO
+01570   PRINT "{""error"":""Account code is required""}"
+01580   $END
+01590 END DO
+01600 cutoff$ = RTRIM($ARG(3))
+01610 IF cutoff$ == " " THEN cutoff$ = "19000101"
+01620 CONVERT cutoff$ TO cutoff_num
+01630 acct_key$ = acct_arg$
+01640 oemsa_file$ = sop_sa_dir$ & "/OEMSA01"
+02000 REM Open OEMSA01 on path 2 and position at this account
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, oemsa_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open OEMSA01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 ki_sym = SYM(rec$)
+02130 CALL KI_START h, acct_key$, 2 TO ki_status
+02140 IF ki_status <> 0 THEN DO
+02150   PRINT "[]"
+02160   CALL KI_CLOSE h TO ki_status
+02170   CALL KI_FREE_HANDLE h TO ki_status
+02180   $END
+02190 END DO
+03000 REM Scan records for this account, filtering by date
+03010 count = 0
+03020 first_rec = 1
+03030 PRINT "["
+03040 REPEAT
+03050   CALL KI_READ_NEXT h, 2, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03060   IF ki_status == 0 THEN DO
+03070     IF STR(ki_key$, 1, 5) == acct_key$ THEN DO
+03080       HEXUNPACK STR(rec$, 10, 4) TO hex$
+03090       CONVERT STR(hex$, 1, 8) TO rec_date_num
+03100       IF rec_date_num >= cutoff_num THEN DO
+03110         count++
+03120         IF count > 500 THEN ki_status = 99
+03130         IF ki_status == 0 THEN DO
+03140           date_str$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+03150           UNPACK (#########.######) STR(rec$, 153, 8) TO qty
+03160           UNPACK (#########.######) STR(rec$, 161, 8) TO sales_val
+03170           UNPACK (#########.######) STR(rec$, 169, 8) TO cost_val
+03180           inv_ac$ = RTRIM(STR(rec$, 125, 5))
+03190           IF NOT first_rec THEN PRINT "  ,"
+03200           PRINT "  {"
+03210           PRINT $PRINTF("    ""date"": ""%s"",", date_str$)
+03220           CALL JSON_ESCAPE RTRIM(STR(rec$, 18, 15)) TO je$
+03230           PRINT $PRINTF("    ""part"": ""%s"",", je$)
+03240           CALL JSON_ESCAPE RTRIM(STR(rec$, 42, 30)) TO je$
+03250           PRINT $PRINTF("    ""description"": ""%s"",", je$)
+03260           IF inv_ac$ <> acct_key$ THEN DO
+03265             CALL JSON_ESCAPE inv_ac$ TO je$
+03268             PRINT $PRINTF("    ""invoice_account"": ""%s"",", je$)
+03270           END DO
+03280           CALL JSON_ESCAPE RTRIM(STR(rec$, 139, 4)) TO je$
+03290           PRINT $PRINTF("    ""rep"": ""%s"",", je$)
+03300           CALL JSON_ESCAPE RTRIM(STR(rec$, 143, 10)) TO je$
+03310           PRINT $PRINTF("    ""order"": ""%s"",", je$)
+03320           PRINT $PRINTF("    ""qty"": %.0f,", qty)
+03330           PRINT $PRINTF("    ""sales_value"": %.2f,", sales_val)
+03340           PRINT $PRINTF("    ""cost"": %.2f,", cost_val)
+03350           CALL JSON_ESCAPE RTRIM(STR(rec$, 193, 1)) TO je$
+03360           PRINT $PRINTF("    ""order_type"": ""%s"",", je$)
+03370           CALL JSON_ESCAPE RTRIM(STR(rec$, 194, 24)) TO je$
+03380           PRINT $PRINTF("    ""customer_ref"": ""%s""", je$)
+03390           PRINT "  }"
+03400           first_rec = 0
+03410         END DO
+03420       END DO
+03430     END DO
+03440     IF STR(ki_key$, 1, 5) <> acct_key$ THEN ki_status = 99
+03450   END DO
+03460 UNTIL ki_status <> 0
+03470 PRINT "]"
+03480 CALL KI_CLOSE h TO ki_status
+03490 CALL KI_FREE_HANDLE h TO ki_status
+03500 $END

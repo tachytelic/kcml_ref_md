@@ -15,6 +15,7 @@ Tools:
   get_picking_note     - full picking note detail by note number
   list_balances        - all accounts with outstanding balance, sorted largest first
   get_part_orders      - all open orders containing a given part number
+  get_account_sales    - invoiced sales history for an account (OEMSA01, fast keyed access)
   get_part_sales       - invoiced sales history for a part (OEMSA01, fast keyed access)
   get_purchase_orders  - all purchase order lines for a given part number
   get_purchase_order   - full detail for a single purchase order (header + lines)
@@ -198,6 +199,25 @@ def get_purchase_orders(part: str) -> str:
                 0 if x.get("qty_outstanding", 0) > 0 else 1,
                 _date_sort_key(x),
             ), reverse=True)
+        return json.dumps(data, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_account_sales(account: str, months: int = 12) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    import datetime
+    cutoff = datetime.date.today() - datetime.timedelta(days=max(1, months) * 30)
+    cutoff_str = cutoff.strftime("%Y%m%d")
+    def _date_sort_key(d):
+        s = d.get("date", "--/--/----")
+        if len(s) == 10 and s[2] == "/" and s[5] == "/":
+            return s[6:10] + s[3:5] + s[0:2]
+        return "00000000"
+    try:
+        data = run_kcml("get_account_sales.src", SOP_SA_DIR, account.strip().upper(), cutoff_str)
+        if isinstance(data, list):
+            data.sort(key=_date_sort_key, reverse=True)
         return json.dumps(data, indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
@@ -422,6 +442,30 @@ TOOLS = [
         },
     },
     {
+        "name": "get_account_sales",
+        "description": (
+            "Return the invoiced sales history for a customer account from the "
+            "Kerridge ERP monthly sales analysis file (OEMSA01). Uses the "
+            "account-keyed index (path 2) so it is fast — no full scan. "
+            "Returns each sale line with date, part number, description, rep, "
+            "order, qty, sales value, cost, order type, and customer reference. "
+            "invoice_account is included when it differs from the delivery "
+            "account (indicating a branch/group billing relationship). Results "
+            "are sorted most recent first and capped at 500 lines. Default "
+            "window is 12 months; pass months to override. Use this to answer: "
+            "what has this customer bought, at what volumes and values, and "
+            "what products do they re-order regularly?"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string",  "description": "Customer account code, e.g. 'B1350'"},
+                "months":  {"type": "integer", "description": "How many months of history to return (default 12)"},
+            },
+            "required": ["account"],
+        },
+    },
+    {
         "name": "get_part_sales",
         "description": (
             "Return the invoiced sales history for a given part number from the "
@@ -510,6 +554,7 @@ TOOL_FNS = {
     "get_invoice":      lambda a: get_invoice(a.get("invoice", "")),
     "get_stock_item":   lambda a: get_stock_item(a.get("part", "")),
     "find_stock":       lambda a: find_stock(a.get("description", "")),
+    "get_account_sales":   lambda a: get_account_sales(a.get("account", ""), int(a.get("months", 12))),
     "get_part_sales":      lambda a: get_part_sales(a.get("part", ""), int(a.get("months", 12))),
     "get_purchase_orders": lambda a: get_purchase_orders(a.get("part", "")),
     "get_purchase_order":  lambda a: get_purchase_order(a.get("po", "")),
