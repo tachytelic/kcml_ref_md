@@ -7,7 +7,8 @@
 01040 REM Usage - kcml -x uf_json.so -p get_purchase_orders.src <pop_dir> <part_number>
 01050 REM Output - JSON array of PO lines for this part, sorted by caller
 01060 REM
-01070 REM PCENT01 fields used (offsets verified by probing live data):
+01070 REM KISAM key = 6 bytes (bytes 1-3 = PO number BCD, bytes 4-6 = line BCD)
+01075 REM PCENT01 fields used (offsets verified by probing live data):
 01080 REM   REC CREATED BY         C  off=   2  len=   4
 01090 REM   REC CREATED ON         D  off=  10  len=   4
 01100 REM   Part number            C  off=  42  len=  15
@@ -27,6 +28,7 @@
 01260 DIM hex$12, date_exp$12, date_orig$12, date_adv$12, date_raised$12
 01270 DIM qty_req, qty_rec, qty_os
 01280 DIM je$64
+01285 DIM po_num_val, po_str$8
 01300 pop_dir$ = RTRIM($ARG(1))
 01310 IF pop_dir$ == " " THEN DO
 01320   PRINT "{""error"":""Usage: get_purchase_orders <pop_dir> <part_number>""}"
@@ -79,6 +81,10 @@
 02380         IF RTRIM(hex$) <> "00000000" THEN date_raised$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
 02390         IF NOT first_rec THEN PRINT "  ,"
 02400         PRINT "  {"
+02405         HEXUNPACK STR(ki_key$, 1, 3) TO hex$
+02407         po_str$ = STR(hex$, 1, 6)
+02408         CONVERT po_str$ TO po_num_val
+02409         PRINT $PRINTF("    ""po_number"": %d,", po_num_val)
 02410         CALL JSON_ESCAPE RTRIM(STR(rec$, 42, 15)) TO je$
 02420         PRINT $PRINTF("    ""part"": ""%s"",", je$)
 02430         CALL JSON_ESCAPE STR(rec$, 66, 30) TO je$

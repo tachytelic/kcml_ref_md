@@ -1,0 +1,195 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_purchase_order.src
+01010 REM Return full detail for a single purchase order.
+01020 REM Header from PCHDR01 (supplier, delivery address, dates).
+01030 REM Lines from PCENT01 using positioned read on 6-byte key prefix.
+01040 REM
+01050 REM Usage -- kcml -x uf_json.so -p get_purchase_order.src <pop_dir> <po_number>
+01060 REM Output -- JSON object with header + lines array
+01070 REM
+01080 REM PCHDR01/PCHDR11 fields used (offsets verified by live probe)
+01090 REM   REC CREATED BY         C  off=   2  len=   4
+01100 REM   Order Date             D  off=  67  len=   4
+01110 REM   Buyer                  C  off=  18  len=   2
+01120 REM   Supplier Address 1     C  off= 471  len=  30
+01130 REM   Supplier Address 2     C  off= 501  len=  30
+01140 REM   Delivery Address 1     C  off= 621  len=  30
+01150 REM   Delivery Address 2     C  off= 651  len=  30
+01160 REM   Delivery Address 3     C  off= 681  len=  30
+01170 REM   Delivery Address 4     C  off= 711  len=  30
+01180 REM   Delivery Address 5     C  off= 741  len=  30
+01190 REM   Account Code           C  off= 771  len=   5
+01200 REM   Supplier Postcode      C  off= 790  len=   8
+01210 REM   Delivery Postcode      C  off= 798  len=   8
+01220 REM
+01230 REM KISAM key = 3 bytes packed BCD = PO number
+01240 REM
+01250 REM PCENT01/PCENT11 fields used (offsets verified by live probe)
+01260 REM   Part number            C  off=  42  len=  15
+01270 REM   Description 1          C  off=  66  len=  30
+01280 REM   Date Expected          D  off= 119  len=   4
+01290 REM   Originally Expected    D  off= 123  len=   4
+01300 REM   Qty Required           I  off= 183  len=   8  dec=6
+01310 REM   Qty Rec This Del       I  off= 191  len=   8  dec=6
+01320 REM   Qty not received       I  off= 199  len=   8  dec=6
+01330 REM   Currency Price         I  off= 215  len=   8  dec=6
+01340 REM
+01350 REM KISAM key = 6 bytes (bytes 1-3 = PO number BCD, bytes 4-6 = line BCD)
+01360 REM
+01400 DIM ki_status, ki_sym, h1, h2
+01410 DIM ki_dataptr$6, ki_key$64
+01420 DIM hdr_rec$1024, ent_rec$512
+01430 DIM pop_dir$128, pchdr_file$160, pcent_file$160
+01440 DIM po_number_str$16, po_num, d12, d34, d56
+01450 DIM po_key$4, start_key$8
+01460 DIM bcd_lut$100
+01470 DIM hex$20, date_ord$12, date_exp$12, date_orig$12
+01480 DIM qty_req, qty_rec, qty_os, unit_price
+01490 DIM line_num, first_line, je$64, je2$64
+01500 DIM sup_name$62, del_addr$62
+01510 REM Build BCD lookup table digit pairs 00-99
+01520 bcd_lut$ = HEX(000102030405060708091011121314151617181920212223242526272829303132333435363738394041424344454647484950515253545556575859606162636465666768697071727374757677787980818283848586878889909192939495969798 99)
+01600 pop_dir$ = RTRIM($ARG(1))
+01610 IF pop_dir$ == " " THEN DO
+01620   PRINT "{""error"":""Usage: get_purchase_order <pop_dir> <po_number>""}"
+01630   $END
+01640 END DO
+01650 po_number_str$ = RTRIM($ARG(2))
+01660 IF po_number_str$ == " " THEN DO
+01670   PRINT "{""error"":""PO number is required""}"
+01680   $END
+01690 END DO
+01700 CONVERT po_number_str$ TO po_num
+01710 IF po_num <= 0 THEN DO
+01720   PRINT "{""error"":""Invalid PO number""}"
+01730   $END
+01740 END DO
+01750 d12 = INT(po_num / 10000)
+01760 d34 = INT((po_num - d12*10000) / 100)
+01770 d56 = po_num - d12*10000 - d34*100
+01780 po_key$ = STR(bcd_lut$, d12+1, 1) & STR(bcd_lut$, d34+1, 1) & STR(bcd_lut$, d56+1, 1)
+01790 pchdr_file$ = pop_dir$ & "/PCHDR01"
+01800 pcent_file$ = pop_dir$ & "/PCENT01"
+02000 REM Phase 1 - Read PO header from PCHDR01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h1, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h1, pchdr_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open PCHDR01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h1 TO ki_status
+02100   $END
+02110 END DO
+02120 ki_sym = SYM(hdr_rec$)
+02130 CALL KI_START h1, po_key$, 1 TO ki_status
+02140 IF ki_status <> 0 THEN DO
+02150   PRINT $PRINTF("{""error"":""PO %d not found (KI_START status %d)""}", po_num, ki_status)
+02160   CALL KI_CLOSE h1 TO ki_status
+02170   CALL KI_FREE_HANDLE h1 TO ki_status
+02180   $END
+02190 END DO
+02200 CALL KI_READ_NEXT h1, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02210 IF ki_status <> 0 THEN DO
+02220   PRINT $PRINTF("{""error"":""PO %d not found (read status %d)""}", po_num, ki_status)
+02230   CALL KI_CLOSE h1 TO ki_status
+02240   CALL KI_FREE_HANDLE h1 TO ki_status
+02250   $END
+02260 END DO
+02270 REM Verify the key matches (in case PO does not exist)
+02280 IF STR(ki_key$, 1, 3) <> po_key$ THEN DO
+02290   PRINT $PRINTF("{""error"":""PO %d not found""}", po_num)
+02300   CALL KI_CLOSE h1 TO ki_status
+02310   CALL KI_FREE_HANDLE h1 TO ki_status
+02320   $END
+02330 END DO
+02340 CALL KI_CLOSE h1 TO ki_status
+02350 CALL KI_FREE_HANDLE h1 TO ki_status
+02360 REM Decode header fields
+02370 HEXUNPACK STR(hdr_rec$, 67, 4) TO hex$
+02380 date_ord$ = "--/--/----"
+02390 IF RTRIM(hex$) <> "00000000" THEN date_ord$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+03000 REM Phase 2 - Scan PCENT01 for lines of this PO
+03010 CALL KI_ALLOC_HANDLE 0, 1 TO h2, ki_status
+03020 IF ki_status <> 0 THEN DO
+03030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (phase 2)""}"
+03040   $END
+03050 END DO
+03060 CALL KI_OPEN h2, pcent_file$, "R" TO ki_status
+03070 IF ki_status <> 0 THEN DO
+03080   PRINT $PRINTF("{""error"":""Cannot open PCENT01 (status %d)""}", ki_status)
+03090   CALL KI_FREE_HANDLE h2 TO ki_status
+03100   $END
+03110 END DO
+03120 ki_sym = SYM(ent_rec$)
+03130 REM Position at first line of this PO -- key = po_key$ + 3 null bytes
+03140 start_key$ = po_key$ & HEX(000000)
+03150 CALL KI_START h2, start_key$, 1 TO ki_status
+04000 REM Phase 3 - Output JSON
+04010 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 471, 30)) TO je$
+04020 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 501, 30)) TO je2$
+04030 sup_name$ = RTRIM(je$)
+04040 IF RTRIM(je2$) <> " " THEN sup_name$ = RTRIM(je$) & " " & RTRIM(je2$)
+04050 PRINT "{"
+04060 PRINT $PRINTF("  ""po_number"": %d,", po_num)
+04070 CALL JSON_ESCAPE RTRIM(sup_name$) TO je$
+04080 PRINT $PRINTF("  ""supplier_name"": ""%s"",", je$)
+04090 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 771, 5)) TO je$
+04100 PRINT $PRINTF("  ""supplier_code"": ""%s"",", je$)
+04110 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 790, 8)) TO je$
+04120 PRINT $PRINTF("  ""supplier_country"": ""%s"",", je$)
+04130 PRINT $PRINTF("  ""order_date"": ""%s"",", date_ord$)
+04140 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 18, 2)) TO je$
+04150 PRINT $PRINTF("  ""buyer"": ""%s"",", je$)
+04160 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 621, 30)) TO je$
+04170 PRINT $PRINTF("  ""delivery_address"": ""%s"",", je$)
+04180 CALL JSON_ESCAPE RTRIM(STR(hdr_rec$, 798, 8)) TO je$
+04190 PRINT $PRINTF("  ""delivery_postcode"": ""%s"",", je$)
+04200 PRINT "  ""lines"": ["
+04210 first_line = 1
+04220 REPEAT
+04230   CALL KI_READ_NEXT h2, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04240   IF ki_status == 0 THEN DO
+04250     IF STR(ki_key$, 1, 3) == po_key$ THEN DO
+04255       REM Skip text lines (TEXT/PART flag at off=41 == "T")
+04258       IF STR(ent_rec$, 41, 1) <> "T" THEN DO
+04260       REM Decode line number from key bytes 4-6
+04270       HEXUNPACK STR(ki_key$, 4, 3) TO hex$
+04280       CONVERT STR(hex$, 1, 6) TO line_num
+04290       UNPACK (#########.######) STR(ent_rec$, 183, 8) TO qty_req
+04300       UNPACK (#########.######) STR(ent_rec$, 191, 8) TO qty_rec
+04310       UNPACK (#########.######) STR(ent_rec$, 199, 8) TO qty_os
+04320       UNPACK (#########.######) STR(ent_rec$, 215, 8) TO unit_price
+04330       HEXUNPACK STR(ent_rec$, 119, 4) TO hex$
+04340       date_exp$ = "--/--/----"
+04350       IF RTRIM(hex$) <> "00000000" THEN date_exp$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+04360       HEXUNPACK STR(ent_rec$, 123, 4) TO hex$
+04370       date_orig$ = "--/--/----"
+04380       IF RTRIM(hex$) <> "00000000" THEN date_orig$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
+04390       IF NOT first_line THEN PRINT "    ,"
+04400       PRINT "    {"
+04410       PRINT $PRINTF("      ""line"": %d,", line_num)
+04420       CALL JSON_ESCAPE RTRIM(STR(ent_rec$, 42, 15)) TO je$
+04430       PRINT $PRINTF("      ""part"": ""%s"",", je$)
+04440       CALL JSON_ESCAPE RTRIM(STR(ent_rec$, 66, 30)) TO je$
+04450       PRINT $PRINTF("      ""description"": ""%s"",", je$)
+04460       PRINT $PRINTF("      ""date_expected"": ""%s"",", date_exp$)
+04470       PRINT $PRINTF("      ""originally_expected"": ""%s"",", date_orig$)
+04480       PRINT $PRINTF("      ""qty_required"": %.0f,", qty_req)
+04490       PRINT $PRINTF("      ""qty_received"": %.0f,", qty_rec)
+04500       PRINT $PRINTF("      ""qty_outstanding"": %.0f,", qty_os)
+04510       PRINT $PRINTF("      ""unit_price"": %.2f", unit_price)
+04520       PRINT "    }"
+04530       first_line = 0
+04535       END DO
+04540     END DO
+04550     IF STR(ki_key$, 1, 3) <> po_key$ THEN ki_status = 99
+04560   END DO
+04570 UNTIL ki_status <> 0
+04580 PRINT "  ]"
+04590 PRINT "}"
+04600 CALL KI_CLOSE h2 TO ki_status
+04610 CALL KI_FREE_HANDLE h2 TO ki_status
+04620 $END

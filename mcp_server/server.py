@@ -4,18 +4,19 @@ Kerridge ERP MCP Server
 Exposes live ERP data from KISAM K-Open 3 files via KCML query programs.
 
 Tools:
-  find_customer     - search customers by name fragment
-  get_customer      - direct customer lookup by account code
-  get_orders        - list orders for a customer account
-  get_order_detail  - full order detail with line and pick status
-  get_invoices      - list open invoices for a customer account
-  get_invoice       - direct invoice lookup by invoice number
-  get_stock_item    - direct stock lookup by part number
-  find_stock        - search stock by description fragment
-  get_picking_note  - full picking note detail by note number
-  list_balances     - all accounts with outstanding balance, sorted largest first
+  find_customer        - search customers by name fragment
+  get_customer         - direct customer lookup by account code
+  get_orders           - list orders for a customer account
+  get_order_detail     - full order detail with line and pick status
+  get_invoices         - list open invoices for a customer account
+  get_invoice          - direct invoice lookup by invoice number
+  get_stock_item       - direct stock lookup by part number
+  find_stock           - search stock by description fragment
+  get_picking_note     - full picking note detail by note number
+  list_balances        - all accounts with outstanding balance, sorted largest first
   get_part_orders      - all open orders containing a given part number
   get_purchase_orders  - all purchase order lines for a given part number
+  get_purchase_order   - full detail for a single purchase order (header + lines)
 
 Transport modes:
 
@@ -196,6 +197,14 @@ def get_purchase_orders(part: str) -> str:
                 _date_sort_key(x),
             ), reverse=True)
         return json.dumps(data, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_purchase_order(po: str) -> str:
+    if not po or not po.strip():
+        return json.dumps({"error": "po parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_purchase_order.src", POP_DIR, po.strip()), indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
@@ -392,6 +401,25 @@ TOOLS = [
         },
     },
     {
+        "name": "get_purchase_order",
+        "description": (
+            "Return full detail for a single purchase order from the Kerridge ERP "
+            "purchase files (PCHDR01 + PCENT01). Shows the supplier name and code, "
+            "order date, buyer, delivery address and postcode, and all order lines "
+            "with part number, description, expected delivery date, original "
+            "expected date, qty required, qty received, qty outstanding, and unit "
+            "price. Use this after get_purchase_orders returns a po_number — e.g. "
+            "to see all parts on a specific PO or to get the supplier details."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "po": {"type": "string", "description": "Purchase order number, e.g. '64577'"}
+            },
+            "required": ["po"],
+        },
+    },
+    {
         "name": "get_part_orders",
         "description": (
             "Find all open orders that have outstanding quantity for a given part "
@@ -440,6 +468,7 @@ TOOL_FNS = {
     "get_stock_item":   lambda a: get_stock_item(a.get("part", "")),
     "find_stock":       lambda a: find_stock(a.get("description", "")),
     "get_purchase_orders": lambda a: get_purchase_orders(a.get("part", "")),
+    "get_purchase_order":  lambda a: get_purchase_order(a.get("po", "")),
     "get_part_orders":     lambda a: get_part_orders(a.get("part", "")),
     "get_picking_note": lambda a: get_picking_note(a.get("note", "")),
     "list_balances":    lambda a: list_balances(),

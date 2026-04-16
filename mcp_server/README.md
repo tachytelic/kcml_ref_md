@@ -99,7 +99,8 @@ Claude Desktop `claude_desktop_config.json`:
 | `get_stock_item` | `part` | Direct lookup in `S_STOK01`. Description, UOM, product group, sell price, qty in stock, qty allocated, qty free. |
 | `find_stock` | `description` (fragment) | Case-insensitive description search. Up to 50 matches. |
 | `get_part_orders` | `part` | All sales order lines where this part has `qty_to_follow > 0` (`OEENT01` + `OEHDR01`). Shows which orders the allocated stock is committed to, plus picking note if one has been raised. |
-| `get_purchase_orders` | `part` | All purchase order lines for this part from `PCENT01`. Shows `date_expected`, `originally_expected`, `last_advice_date`, `qty_required`, `qty_received`, `qty_outstanding`. Outstanding POs sorted first. |
+| `get_purchase_orders` | `part` | All purchase order lines for this part from `PCENT01`. Shows `po_number`, `date_expected`, `originally_expected`, `last_advice_date`, `qty_required`, `qty_received`, `qty_outstanding`. Outstanding POs sorted first. |
+| `get_purchase_order` | `po` | Full detail for a single purchase order from `PCHDR01` + `PCENT01`. Header (supplier name/code, order date, buyer, delivery address/postcode) plus all lines (part, description, dates, qty fields, unit price). |
 
 ### Picking tools
 
@@ -132,8 +133,9 @@ list_overdue() → get_invoices("T0001")
 **Stock availability + inbound**
 ```
 find_stock("ethernet cable") → get_stock_item("88504040")
-get_stock_item("88504040")    → get_part_orders("88504040")   [what sales orders need it]
+get_stock_item("88504040")    → get_part_orders("88504040")     [what sales orders need it]
 get_stock_item("88504040")    → get_purchase_orders("88504040") [when is it due in]
+get_purchase_orders("88504040") → get_purchase_order("64577")  [full PO detail]
 ```
 
 **Warehouse / picking**
@@ -161,6 +163,7 @@ mcp_server/
     ├── get_part_orders.src
     ├── get_purchase_orders.src
     ├── get_picking_note.src
+    ├── get_purchase_order.src
     ├── list_balances.src
     └── list_overdue.src
 ```
