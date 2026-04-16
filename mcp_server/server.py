@@ -36,7 +36,7 @@ import sys
 import uuid
 import queue
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -100,6 +100,22 @@ def get_order_detail(order: str) -> str:
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
+def get_invoices(account: str) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_invoices.src", ACCOUNTS_DIR, account.strip().upper()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_invoice(invoice: str) -> str:
+    if not invoice or not invoice.strip():
+        return json.dumps({"error": "invoice parameter is required"})
+    try:
+        return json.dumps(run_kcml("get_invoice.src", ACCOUNTS_DIR, invoice.strip()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
 # ── MCP tool definitions ───────────────────────────────────────────────────────
 
 TOOLS = [
@@ -150,12 +166,47 @@ TOOLS = [
             "required": ["order"],
         },
     },
+    {
+        "name": "get_invoices",
+        "description": (
+            "Return all open invoices for a customer account code from the "
+            "Kerridge ERP sales ledger (SALINV01). Shows invoice number, date, "
+            "due date, net value, VAT, gross total, and customer reference. "
+            "All invoices returned are outstanding (unpaid). Use find_customer "
+            "first to get the account code if you only have a name."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string", "description": "Customer account code, e.g. 'D2560'"}
+            },
+            "required": ["account"],
+        },
+    },
+    {
+        "name": "get_invoice",
+        "description": (
+            "Look up a single invoice by invoice number from the Kerridge ERP "
+            "sales ledger (SALINV01). Returns account code, type, date, due "
+            "date, net, VAT, gross, and customer reference. Use this when the "
+            "user quotes a specific invoice number."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "invoice": {"type": "string", "description": "Invoice number, e.g. '713773'"}
+            },
+            "required": ["invoice"],
+        },
+    },
 ]
 
 TOOL_FNS = {
     "find_customer":    lambda a: find_customer(a.get("name", "")),
     "get_orders":       lambda a: get_orders(a.get("account", "")),
     "get_order_detail": lambda a: get_order_detail(a.get("order", "")),
+    "get_invoices":     lambda a: get_invoices(a.get("account", "")),
+    "get_invoice":      lambda a: get_invoice(a.get("invoice", "")),
 }
 
 # ── JSON-RPC message handler ───────────────────────────────────────────────────
@@ -168,7 +219,7 @@ def handle_message(msg: dict):
         return {
             "jsonrpc": "2.0", "id": msg_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-11-25",
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "kerridge-erp", "version": "1.0.0"},
             },
@@ -233,6 +284,7 @@ def run_stdio():
 # session_id -> queue.Queue
 _sessions: dict[str, queue.Queue] = {}
 _sessions_lock = threading.Lock()
+_server_port = 8765  # updated by run_http()
 
 
 class MCPHandler(BaseHTTPRequestHandler):
@@ -269,8 +321,9 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-        # Tell the client where to POST requests
-        endpoint = f"/messages?sessionId={session_id}"
+        # Tell the client where to POST requests (full URL required by mcp-remote)
+        host = self.headers.get("Host", f"localhost:{_server_port}")
+        endpoint = f"http://{host}/messages?sessionId={session_id}"
         self._sse_write(f"event: endpoint\ndata: {endpoint}\n\n")
 
         # Stream responses until client disconnects
@@ -354,7 +407,9 @@ class MCPHandler(BaseHTTPRequestHandler):
 
 
 def run_http(port: int):
-    server = HTTPServer(("0.0.0.0", port), MCPHandler)
+    global _server_port
+    _server_port = port
+    server = ThreadingHTTPServer(("0.0.0.0", port), MCPHandler)
     print(f"Kerridge ERP MCP server listening on port {port}", file=sys.stderr, flush=True)
     print(f"SSE endpoint : http://localhost:{port}/sse", file=sys.stderr, flush=True)
     print(f"Health check : http://localhost:{port}/health", file=sys.stderr, flush=True)

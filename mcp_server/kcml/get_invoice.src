@@ -1,0 +1,83 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_invoice.src
+01010 REM Look up a single invoice by number from SALINV01
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_invoice.src <accounts_dir> <invoice_number>
+01040 REM Output - JSON object with invoice detail, or error if not found
+01100 DIM ki_status, h, ki_sym
+01110 DIM ki_dataptr$6, ki_key$64
+01120 DIM rec$300
+01130 DIM accounts_dir$128, acct_file$160
+01140 DIM target_inv, inv_num, inv_val, vat_val
+01150 DIM ttype$2, rec_acc$8, ref$16, je_ref$32
+01160 DIM date_hex$12, inv_date$12, due_date$12
+01170 DIM arg_inv$16, found
+01200 accounts_dir$ = RTRIM($ARG(1))
+01210 IF accounts_dir$ == " " THEN DO
+01220   PRINT "{""error"":""Usage: get_invoice <accounts_dir> <invoice_number>""}"
+01230   $END
+01240 END DO
+01250 arg_inv$ = RTRIM($ARG(2))
+01260 IF arg_inv$ == " " THEN DO
+01270   PRINT "{""error"":""Invoice number is required""}"
+01280   $END
+01290 END DO
+01300 CONVERT arg_inv$ TO target_inv
+01310 acct_file$ = accounts_dir$ & "/SALINV01"
+02000 REM Open SALINV01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, acct_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALINV01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 REM Scan for matching invoice number
+02210 found = 0
+02220 REPEAT
+02230   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02240   IF ki_status == 0 THEN DO
+02250     UNPACK (########) STR(rec$, 72, 4) TO inv_num
+02260     IF inv_num == target_inv THEN DO
+02270       found = 1
+02280       ttype$ = STR(rec$, 20, 1)
+02290       rec_acc$ = RTRIM(STR(rec$, 62, 6))
+02300       ref$ = RTRIM(STR(rec$, 76, 14))
+02310       HEXUNPACK STR(rec$, 22, 4) TO date_hex$
+02320       inv_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02330       HEXUNPACK STR(rec$, 26, 4) TO date_hex$
+02340       due_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02350       UNPACK (#########.######) STR(rec$, 90, 8) TO inv_val
+02360       UNPACK (#########.######) STR(rec$, 106, 8) TO vat_val
+02370       CALL JSON_ESCAPE ref$ TO je_ref$
+02380       PRINT "{"
+02390       PRINT $PRINTF("  ""invoice"": %d,", inv_num)
+02400       IF ttype$ == "I" THEN PRINT "  ""type"": ""Invoice"","
+02410       IF ttype$ == "C" THEN PRINT "  ""type"": ""Credit Note"","
+02420       IF ttype$ == "I" OR ttype$ == "C" THEN DO
+02430         PRINT $PRINTF("  ""account"": ""%s"",", rec_acc$)
+02450         PRINT $PRINTF("  ""date"": ""%s"",", inv_date$)
+02460         PRINT $PRINTF("  ""due"": ""%s"",", due_date$)
+02470         PRINT $PRINTF("  ""net"": %.2f,", inv_val)
+02480         PRINT $PRINTF("  ""vat"": %.2f,", vat_val)
+02490         PRINT $PRINTF("  ""gross"": %.2f,", inv_val + vat_val)
+02500         PRINT $PRINTF("  ""customer_ref"": ""%s"",", je_ref$)
+02510         PRINT "  ""status"": ""open"""
+02520       END DO
+02530       PRINT "}"
+02540     END DO
+02550   END DO
+02560 UNTIL ki_status <> 0 OR found
+02570 CALL KI_CLOSE h TO ki_status
+02580 CALL KI_FREE_HANDLE h TO ki_status
+02590 IF found == 0 THEN DO
+02600   PRINT $PRINTF("{""error"":""Invoice %d not found in open ledger""}", target_inv)
+02610 END DO
+02620 $END

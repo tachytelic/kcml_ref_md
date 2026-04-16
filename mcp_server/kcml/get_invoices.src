@@ -1,0 +1,92 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_invoices.src
+01010 REM List open invoices for a customer account from SALINV01
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_invoices.src <accounts_dir> <account>
+01040 REM Output - JSON array of invoices
+01050 REM
+01060 REM Field offsets (verified by probe):
+01070 REM   off=20 len=1  Transaction type (I=invoice C=credit N=credit note)
+01080 REM   off=22 len=4  Invoice date    (packed BCD YYYYMMDD)
+01090 REM   off=26 len=4  Due date        (packed BCD YYYYMMDD)
+01100 REM   off=62 len=6  Account code (off=61 is a null separator byte)
+01110 REM   off=72 len=4  Invoice number  (BCD, leading 00 + 3-byte number)
+01120 REM   off=76 len=14 Customer reference (space-padded)
+01130 REM   off=90 len=8  Net value       (packed dec, 6 dec places)
+01140 REM   off=106 len=8 VAT value       (packed dec, 6 dec places)
+01200 DIM ki_status, h, ki_sym
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$300
+01230 DIM accounts_dir$128, acct_file$160
+01240 DIM search_acc$8, rec_acc$8, ttype$2
+01250 DIM inv_num, inv_val, vat_val
+01260 DIM date_hex$12, inv_date$12, due_date$12
+01270 DIM ref$16, je_ref$32
+01280 DIM first_rec, overdue$6
+01300 accounts_dir$ = RTRIM($ARG(1))
+01310 IF accounts_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage: get_invoices <accounts_dir> <account>""}"
+01330   $END
+01340 END DO
+01350 search_acc$ = $UPPER(RTRIM($ARG(2)))
+01360 IF search_acc$ == " " THEN DO
+01370   PRINT "{""error"":""Account parameter is required""}"
+01380   $END
+01390 END DO
+01400 acct_file$ = accounts_dir$ & "/SALINV01"
+02000 REM Open SALINV01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, acct_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALINV01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h, 1 TO ki_status
+02130 ki_sym = SYM(rec$)
+02200 REM Scan for matching account records
+02210 first_rec = 1
+02220 PRINT "["
+02230 REPEAT
+02240   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02250   IF ki_status == 0 THEN DO
+02260     rec_acc$ = RTRIM(STR(rec$, 62, 6))
+02270     ttype$ = STR(rec$, 20, 1)
+02280     IF rec_acc$ == search_acc$ THEN DO
+02290       IF ttype$ == "I" OR ttype$ == "C" THEN DO
+02300         UNPACK (########) STR(rec$, 72, 4) TO inv_num
+02310         HEXUNPACK STR(rec$, 22, 4) TO date_hex$
+02320         inv_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02330         HEXUNPACK STR(rec$, 26, 4) TO date_hex$
+02340         due_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02350         UNPACK (#########.######) STR(rec$, 90, 8) TO inv_val
+02360         UNPACK (#########.######) STR(rec$, 106, 8) TO vat_val
+02370         ref$ = RTRIM(STR(rec$, 76, 14))
+02380         CALL JSON_ESCAPE ref$ TO je_ref$
+02390         overdue$ = "false"
+02400         IF NOT first_rec THEN PRINT "  ,"
+02410         PRINT "  {"
+02420         PRINT $PRINTF("    ""invoice"": %d,", inv_num)
+02430         IF ttype$ == "I" THEN PRINT "    ""type"": ""Invoice"","
+02440         IF ttype$ == "C" THEN PRINT "    ""type"": ""Credit Note"","
+02450         PRINT $PRINTF("    ""date"": ""%s"",", inv_date$)
+02460         PRINT $PRINTF("    ""due"": ""%s"",", due_date$)
+02470         PRINT $PRINTF("    ""net"": %.2f,", inv_val)
+02480         PRINT $PRINTF("    ""vat"": %.2f,", vat_val)
+02490         PRINT $PRINTF("    ""gross"": %.2f,", inv_val + vat_val)
+02500         PRINT $PRINTF("    ""customer_ref"": ""%s""", je_ref$)
+02510         PRINT "  }"
+02520         first_rec = 0
+02530       END DO
+02540     END DO
+02550   END DO
+02560 UNTIL ki_status <> 0
+02570 PRINT "]"
+02580 CALL KI_CLOSE h TO ki_status
+02590 CALL KI_FREE_HANDLE h TO ki_status
+02600 $END
