@@ -1,0 +1,98 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM add_account_note.src
+01010 REM Add a diary entry to SALDRY01 for a customer account
+01020 REM
+01030 REM Usage - kcml -p add_account_note.src <accounts_dir> <account> <category> <text> <date_yyyymmdd> <time_hhmm>
+01040 REM Output - JSON with ok=true and uid, or error message
+01050 REM
+01060 REM Record layout (from libAC.src DATA line 08197):
+01070 REM   bytes 1-17  KISAM system header (zeroed for new record)
+01080 REM   off=18 len=10  Account code (space-padded to 10)
+01090 REM   off=28 len=1   Category (C=credit N=note P=phone etc.)
+01100 REM   off=29 len=4   Date (packed BCD YYYYMMDD, key part 2)
+01110 REM   off=33 len=2   Time (packed BCD HHMM, key part 3)
+01120 REM   off=35 len=4   Invoice number (packed, 0 if none)
+01130 REM   off=39 len=70  Text line 1
+01140 REM   off=109 len=70 Text line 2
+01150 REM   off=179 len=70 Text line 3
+01160 REM   off=249 len=3  Unique ID (binary counter, key part 4)
+01200 DIM ki_status, h, ki_sym
+01210 DIM ki_dataptr$6, ki_key$64, scan_rec$512
+01220 DIM accounts_dir$128, saldry_file$160
+01230 DIM account$12, category$4
+01240 DIM text_in$220, text1$72, text2$72, text3$72
+01250 DIM date_in$10, time_in$6
+01260 DIM packed_date$6, packed_time$4
+01270 DIM max_uid, new_uid
+01280 DIM diary_rec$512
+01300 accounts_dir$ = RTRIM($ARG(1))
+01310 IF accounts_dir$ == " " THEN DO
+01320   PRINT "{""error"":""Usage: add_account_note <dir> <account> <category> <text> <date_yyyymmdd> <time_hhmm>""}"
+01330   $END
+01340 END DO
+01350 account$ = $UPPER(RTRIM($ARG(2)))
+01360 IF account$ == " " THEN DO
+01370   PRINT "{""error"":""Account parameter is required""}"
+01380   $END
+01390 END DO
+01400 category$ = $UPPER(RTRIM($ARG(3)))
+01410 IF category$ == " " THEN category$ = "N"
+01420 text_in$ = $ARG(4)
+01430 date_in$ = RTRIM($ARG(5))
+01440 IF date_in$ == " " THEN date_in$ = "20000101"
+01450 time_in$ = RTRIM($ARG(6))
+01460 IF time_in$ == " " THEN time_in$ = "0000"
+01470 saldry_file$ = accounts_dir$ & "/SALDRY01"
+01500 REM Split text into 3 lines of 70 chars each
+01510 text1$ = STR(text_in$, 1, 70)
+01520 text2$ = STR(text_in$, 71, 70)
+01530 text3$ = STR(text_in$, 141, 70)
+01600 REM Open SALDRY01 in write mode
+01610 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+01620 IF ki_status <> 0 THEN DO
+01630   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+01640   $END
+01650 END DO
+01660 CALL KI_OPEN h, saldry_file$, "W" TO ki_status
+01670 IF ki_status <> 0 THEN DO
+01680   PRINT $PRINTF("{""error"":""Cannot open SALDRY01 (status %d)""}", ki_status)
+01690   CALL KI_FREE_HANDLE h TO ki_status
+01700   $END
+01710 END DO
+01800 REM Scan whole file to find max uid (needed to generate a unique key)
+01810 CALL KI_START_BEG h, 1 TO ki_status
+01820 ki_sym = SYM(scan_rec$)
+01830 max_uid = 0
+01840 REPEAT
+01850   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+01860   IF ki_status == 0 THEN DO
+01870     new_uid = VAL(STR(scan_rec$, 249, 3), 3)
+01880     IF new_uid > max_uid THEN max_uid = new_uid
+01890   END DO
+01900 UNTIL ki_status <> 0
+01910 new_uid = max_uid + 1
+02000 REM Build the diary record
+02010 diary_rec$ = ALL(HEX(00))
+02020 STR(diary_rec$, 18, 10) = account$
+02030 STR(diary_rec$, 28, 1) = category$
+02040 HEXPACK packed_date$ FROM date_in$
+02050 STR(diary_rec$, 29, 4) = packed_date$
+02060 HEXPACK packed_time$ FROM time_in$
+02070 STR(diary_rec$, 33, 2) = packed_time$
+02080 STR(diary_rec$, 39, 70) = text1$
+02090 STR(diary_rec$, 109, 70) = text2$
+02100 STR(diary_rec$, 179, 70) = text3$
+02110 STR(diary_rec$, 249, 3) = BIN(new_uid, 3)
+02200 REM Write the new record
+02210 CALL KI_WRITE h, SYM(diary_rec$), 0 TO ki_status, ki_dataptr$
+02220 IF ki_status <> 0 THEN DO
+02230   PRINT $PRINTF("{""error"":""KI_WRITE failed (status %d)""}", ki_status)
+02240   CALL KI_CLOSE h TO ki_status
+02250   CALL KI_FREE_HANDLE h TO ki_status
+02260   $END
+02270 END DO
+02280 PRINT $PRINTF("{""ok"": true, ""uid"": %d}", new_uid)
+02290 CALL KI_CLOSE h TO ki_status
+02300 CALL KI_FREE_HANDLE h TO ki_status
+02310 $END

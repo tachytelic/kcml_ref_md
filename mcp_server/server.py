@@ -19,6 +19,8 @@ Tools:
   get_part_sales       - invoiced sales history for a part (OEMSA01, fast keyed access)
   get_purchase_orders  - all purchase order lines for a given part number
   get_purchase_order   - full detail for a single purchase order (header + lines)
+  get_paid_invoices    - paid invoice history for a customer account (SALLOG01, keyed access)
+  add_account_note     - write a diary note to a customer account (SALDRY01, creates new record)
 
 Transport modes:
 
@@ -246,6 +248,44 @@ def get_purchase_order(po: str) -> str:
         return json.dumps({"error": "po parameter is required"})
     try:
         return json.dumps(run_kcml("get_purchase_order.src", POP_DIR, po.strip()), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def add_account_note(account: str, text: str, category: str = "N") -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    if not text or not text.strip():
+        return json.dumps({"error": "text parameter is required"})
+    import datetime
+    now = datetime.datetime.now()
+    date_str = now.strftime("%Y%m%d")
+    time_str = now.strftime("%H%M")
+    padded_text = text[:210].ljust(210)
+    cat = (category.strip().upper() or "N")[:1]
+    try:
+        return json.dumps(run_kcml(
+            "add_account_note.src",
+            ACCOUNTS_DIR, account.strip().upper(), cat, padded_text, date_str, time_str
+        ), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def get_paid_invoices(account: str, months: int = 12) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    import datetime
+    cutoff = datetime.date.today() - datetime.timedelta(days=max(1, months) * 30)
+    cutoff_str = cutoff.strftime("%Y%m%d")
+    def _date_sort_key(d):
+        s = d.get("date", "--/--/----")
+        if len(s) == 10 and s[2] == "/" and s[5] == "/":
+            return s[6:10] + s[3:5] + s[0:2]
+        return "00000000"
+    try:
+        data = run_kcml("get_paid_invoices.src", ACCOUNTS_DIR, account.strip().upper(), cutoff_str)
+        if isinstance(data, list):
+            data.sort(key=_date_sort_key, reverse=True)
+        return json.dumps(data, indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
@@ -507,6 +547,49 @@ TOOLS = [
         },
     },
     {
+        "name": "add_account_note",
+        "description": (
+            "Add a diary note to a customer account in the Kerridge ERP Sales "
+            "Ledger diary file (SALDRY01). The note appears immediately when "
+            "staff open the account in the ERP. Use this to record call outcomes, "
+            "payment promises, credit decisions, dispute details, or any other "
+            "account activity. The note is timestamped with today's date and "
+            "current time. Category codes: N=general note (default), "
+            "P=phone call, C=credit decision. Text up to 210 characters."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account":  {"type": "string", "description": "Customer account code, e.g. 'Z9234'"},
+                "text":     {"type": "string", "description": "Note text, up to 210 characters"},
+                "category": {"type": "string", "description": "Category code: N=note (default), P=phone call, C=credit decision"},
+            },
+            "required": ["account", "text"],
+        },
+    },
+    {
+        "name": "get_paid_invoices",
+        "description": (
+            "Return the paid invoice history for a customer account from the "
+            "Kerridge ERP Sales Ledger paid transactions file (SALLOG01). Uses "
+            "keyed access positioned at the account, so it is fast. Returns each "
+            "paid invoice or credit note with invoice date, paid date, net value, "
+            "customer reference, cheque/payment reference, and days taken to pay. "
+            "Results are sorted most recent first and capped at 500 records. "
+            "Default window is 12 months; pass months to override. Use this to "
+            "answer: when did this customer last pay, how long do they typically "
+            "take to pay, what invoices have been settled, and by which cheque?"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string",  "description": "Customer account code, e.g. 'D2560'"},
+                "months":  {"type": "integer", "description": "How many months of history to return (default 12)"},
+            },
+            "required": ["account"],
+        },
+    },
+    {
         "name": "get_part_orders",
         "description": (
             "Find all open orders that have outstanding quantity for a given part "
@@ -558,6 +641,8 @@ TOOL_FNS = {
     "get_part_sales":      lambda a: get_part_sales(a.get("part", ""), int(a.get("months", 12))),
     "get_purchase_orders": lambda a: get_purchase_orders(a.get("part", "")),
     "get_purchase_order":  lambda a: get_purchase_order(a.get("po", "")),
+    "add_account_note":    lambda a: add_account_note(a.get("account", ""), a.get("text", ""), a.get("category", "N")),
+    "get_paid_invoices":   lambda a: get_paid_invoices(a.get("account", ""), int(a.get("months", 12))),
     "get_part_orders":     lambda a: get_part_orders(a.get("part", "")),
     "get_picking_note": lambda a: get_picking_note(a.get("note", "")),
     "list_balances":    lambda a: list_balances(),

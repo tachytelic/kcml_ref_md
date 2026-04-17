@@ -1,0 +1,113 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_paid_invoices.src
+01010 REM List paid invoice history for a customer account from SALLOG01
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_paid_invoices.src <accounts_dir> <account> <cutoff_yyyymmdd>
+01040 REM Output - JSON array of paid transactions, cap 500 records
+01050 REM
+01060 REM Field offsets (from libAC.src DATA line 08196):
+01070 REM   off=20 len=1   Transaction type (I=invoice C=credit note)
+01080 REM   off=22 len=4   Invoice date   (packed BCD YYYYMMDD, date slot 1)
+01090 REM   off=42 len=4   Paid date      (packed BCD YYYYMMDD, date slot 6)
+01100 REM   off=62 len=10  Account code
+01110 REM   off=72 len=4   Invoice number (packed num4)
+01120 REM   off=76 len=14  Customer reference
+01130 REM   off=90 len=8   Net value      (packed dec, 6 dec places)
+01140 REM   off=210 len=15 Cheque / payment reference (character)
+01150 REM   off=225 len=2  Days to pay    (packed num2, slot 1 of 5-slot array)
+01200 DIM ki_status, h, ki_sym
+01210 DIM ki_dataptr$6, ki_key$64
+01220 DIM rec$512
+01230 DIM accounts_dir$128, sallog_file$160
+01240 DIM search_acc$12, rec_acc$12, ttype$2
+01250 DIM inv_num, net_val, days_val
+01260 DIM date_hex$12, inv_date$12, paid_date$12, inv_date_ymd$10
+01270 DIM ref$16, cheque$18
+01280 DIM je_ref$32, je_cheque$32
+01290 DIM start_key$20, cutoff$10
+01300 DIM first_rec, count
+01310 accounts_dir$ = RTRIM($ARG(1))
+01320 IF accounts_dir$ == " " THEN DO
+01330   PRINT "{""error"":""Usage: get_paid_invoices <accounts_dir> <account> <cutoff_yyyymmdd>""}"
+01340   $END
+01350 END DO
+01360 search_acc$ = $UPPER(RTRIM($ARG(2)))
+01370 IF search_acc$ == " " THEN DO
+01380   PRINT "{""error"":""Account parameter is required""}"
+01390   $END
+01400 END DO
+01410 cutoff$ = RTRIM($ARG(3))
+01420 IF cutoff$ == " " THEN cutoff$ = "19000101"
+01430 sallog_file$ = accounts_dir$ & "/SALLOG01"
+02000 REM Open SALLOG01
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h, sallog_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALLOG01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h TO ki_status
+02100   $END
+02110 END DO
+02120 REM Build start key - account null-padded (key format uses nulls not spaces)
+02130 start_key$ = ALL(HEX(00))
+02135 STR(start_key$, 1, LEN(search_acc$)) = search_acc$
+02140 CALL KI_START h, start_key$, 1 TO ki_status
+02150 IF ki_status <> 0 THEN DO
+02160   PRINT "[]"
+02170   CALL KI_CLOSE h TO ki_status
+02180   CALL KI_FREE_HANDLE h TO ki_status
+02190   $END
+02200 END DO
+02210 ki_sym = SYM(rec$)
+02300 REM Scan forward while account code matches
+02310 first_rec = 1
+02320 count = 0
+02330 PRINT "["
+02340 REPEAT
+02350   CALL KI_READ_NEXT h, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02360   IF ki_status == 0 THEN DO
+02370     rec_acc$ = RTRIM(STR(rec$, 62, 10))
+02380     IF rec_acc$ <> search_acc$ THEN ki_status = 2
+02390   END DO
+02400   IF ki_status == 0 THEN DO
+02410     ttype$ = STR(rec$, 20, 1)
+02420     IF ttype$ == "I" OR ttype$ == "C" THEN DO
+02430       HEXUNPACK STR(rec$, 22, 4) TO date_hex$
+02440       inv_date_ymd$ = STR(date_hex$, 1, 8)
+02450       IF inv_date_ymd$ >= cutoff$ THEN DO
+02460         UNPACK (########) STR(rec$, 72, 4) TO inv_num
+02470         HEXUNPACK STR(rec$, 42, 4) TO date_hex$
+02480         paid_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02490         inv_date$ = STR(inv_date_ymd$, 7, 2) & "/" & STR(inv_date_ymd$, 5, 2) & "/" & STR(inv_date_ymd$, 1, 4)
+02500         UNPACK (#########.######) STR(rec$, 90, 8) TO net_val
+02510         ref$ = RTRIM(STR(rec$, 76, 14))
+02520         cheque$ = RTRIM(STR(rec$, 210, 15))
+02530         UNPACK (###) STR(rec$, 225, 2) TO days_val
+02540         CALL JSON_ESCAPE ref$ TO je_ref$
+02550         CALL JSON_ESCAPE cheque$ TO je_cheque$
+02560         IF NOT first_rec THEN PRINT "  ,"
+02570         PRINT "  {"
+02580         PRINT $PRINTF("    ""invoice"": %d,", inv_num)
+02590         IF ttype$ == "I" THEN PRINT "    ""type"": ""Invoice"","
+02600         IF ttype$ == "C" THEN PRINT "    ""type"": ""Credit Note"","
+02610         PRINT $PRINTF("    ""date"": ""%s"",", inv_date$)
+02620         PRINT $PRINTF("    ""paid_date"": ""%s"",", paid_date$)
+02630         PRINT $PRINTF("    ""net"": %.2f,", net_val)
+02640         PRINT $PRINTF("    ""customer_ref"": ""%s"",", je_ref$)
+02650         PRINT $PRINTF("    ""cheque"": ""%s"",", je_cheque$)
+02660         PRINT $PRINTF("    ""days_to_pay"": %d", days_val)
+02670         PRINT "  }"
+02680         first_rec = 0
+02690         count++
+02700       END DO
+02710     END DO
+02720   END DO
+02730 UNTIL ki_status <> 0 OR count >= 500
+02740 PRINT "]"
+02750 CALL KI_CLOSE h TO ki_status
+02760 CALL KI_FREE_HANDLE h TO ki_status
+02770 $END
