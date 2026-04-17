@@ -1,6 +1,15 @@
 # Real KCML business application source files - not for public distribution
 kcml_source/
 
+# Python bytecode
+__pycache__/
+*.pyc
+
+# KCML panic dumps and scratch files
+panic*.xml
+*.k7e
+pan.xsl
+
 # Raw KCML vendor documentation and tooling - not for public distribution
 kcmlrefman/
 kcmlforms/
