@@ -153,6 +153,13 @@ Type `D`, 4-byte fields store dates as 4 binary-coded bytes that HEXUNPACK revea
 : date$ = STR(hex$, 7, 2) & "/" & STR(hex$, 5, 2) & "/" & STR(hex$, 1, 4)
 ```
 
+To **write** a packed date from a `YYYYMMDD` string, use `HEXPACK`:
+
+```kcml
+: DIM date_packed$4
+: HEXPACK date_packed$ FROM "20260418"   REM treats string as 8 hex chars -> 4 bytes
+```
+
 ## IBM Packed Decimal (type K / type I in DD files, verified on S_STOK01)
 
 Type K (`DECIMAL` in SQL, type `I` in legacy DD files) stores packed BCD numbers. Use `UNPACK` directly — it handles IBM BCD format:
@@ -166,6 +173,31 @@ Type K (`DECIMAL` in SQL, type `I` in legacy DD files) stores packed BCD numbers
 
 The image string must match: `(field_bytes*2 - 1 - scale)` `#` chars + `.` + `scale` `#` chars. For fallback/inspection using HEXUNPACK: 8 bytes = 16 hex chars = 15 BCD digits + sign nibble (last char, C=pos, D=neg). Build decimal string: `STR(hex$, 1, 9) & "." & STR(hex$, 10, 6)` then `CONVERT valstr$ TO val`.
 
+**PACK statement is broken in KCML 06.00.88** — `PACK "image", val TO dest$` gives S12 syntax error. To **write** packed BCD, build the hex string manually and use `HEXPACK`:
+
+```kcml
+: REM Write value=9.99 into an 8-byte #########.###### packed field
+: DIM val, bcd_val, n_s$12, pad_s$32, hex_s$16, packed$8
+: val = 9.99
+: bcd_val = ROUND(val * 1000000, 0)
+: n_s$ = $PRINTF("%d", bcd_val)
+: pad_s$ = "000000000000000" & RTRIM(n_s$)
+: hex_s$ = STR(RTRIM(pad_s$), LEN(RTRIM(pad_s$)) - 14, 15) & "C"
+: HEXPACK packed$ FROM hex_s$
+: REM hex_s$ = "000000009990000C", packed$ = 8 binary bytes
+```
+
+Sign nibble: use `C` for OEENT01 #########.###### fields; use `0` for integer-only PACK(#######) fields (e.g. PFN8 counter).
+
+For PACK(#######) 7-digit integer fields (4 bytes):
+```kcml
+: DIM n_s$12, pad_s$16, hex_s$8, packed$4
+: n_s$ = $PRINTF("%d", val)
+: pad_s$ = "0000000" & RTRIM(n_s$)
+: hex_s$ = STR(RTRIM(pad_s$), LEN(RTRIM(pad_s$)) - 6, 7) & "0"
+: HEXPACK packed$ FROM hex_s$
+```
+
 ## KISAM File Access (Verified Working Pattern)
 
 Key facts:
@@ -175,6 +207,22 @@ Key facts:
 - Pre-assign `ki_sym = SYM(rec$)` — do not pass `SYM()` inline to `KI_READ_NEXT`
 - Status 2 = EOF (normal), 0 = success, 1 = not found
 - `CALL KI_START handle, key$, path TO status` — key$ before path in KCML 6.x (libKI has them reversed)
+
+**KI_REWRITE signature (verified from libKI source):**
+
+```kcml
+CALL KI_REWRITE h, ki_dataptr$, ki_sym TO ki_status
+```
+
+Used after `KI_READ_HOLD` to write back a modified locked record. The ERP wrapper `GOSUB 'KI_REWRITE(handle, ki_dataptr$, ki_sym)` auto-stamps USER_AMEND/DATE_AMEND fields; the direct CALL does not.
+
+**KI_WRITE signature for new records:**
+
+```kcml
+CALL KI_WRITE h, SYM(rec$), 0 TO ki_status, ki_dataptr$
+```
+
+The third argument (path=0 = key path 1) tells KISAM which key path to use for the insert.
 
 ## ERP Wrapper ki_start_beg Bug (after EOF)
 

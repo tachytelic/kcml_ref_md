@@ -21,6 +21,9 @@ Tools:
   get_purchase_order   - full detail for a single purchase order (header + lines)
   get_paid_invoices    - paid invoice history for a customer account (SALLOG01, keyed access)
   add_account_note     - write a diary note to a customer account (SALDRY01, creates new record)
+  get_invoice_detail   - full invoice detail with delivery address and all lines (SALINV01+OEHDR01+OEENT01)
+  get_spool_entry      - return spooler entry metadata and content by entry number (SPOOLMAST)
+  create_order         - create a new sales order header + lines (OEHDR01 + OEENT01, allocates order number)
 
 Transport modes:
 
@@ -45,6 +48,8 @@ Transport modes:
 
 import argparse
 import json
+import os
+import struct
 import subprocess
 import sys
 import uuid
@@ -65,6 +70,7 @@ SOP_SA_DIR   = "/user1/kopen/sop_sa"
 ACCOUNTS_DIR = "/user1/kopen/accounts"
 STOCK_DIR    = "/user1/kopen/stock"
 POP_DIR      = "/user1/kopen/pop"
+SPOOL_DIR    = "/user1/kopen/spool"
 
 # ── KCML runner ───────────────────────────────────────────────────────────────
 
@@ -289,12 +295,108 @@ def get_paid_invoices(account: str, months: int = 12) -> str:
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
+_SPOOL_REC_SIZE = 128
+_SPOOL_STATUS   = {'1':'ON QUEUE','2':'PRINTING','3':'PRINTED','4':'ABORTED','5':'KEEP'}
+_SPOOL_SYSTEM   = {'A':'Accounts','S':'Stock','P':'Sales','C':'Contract',' ':'Global'}
+
+def _bcd_date(raw: bytes) -> str:
+    h = raw.hex()
+    return '' if h == '00000000' else f'{h[6:8]}/{h[4:6]}/{h[0:4]}'
+
+def _bcd_time(raw: bytes) -> str:
+    h = raw.hex()
+    return '' if h == '000000' else f'{h[0:2]}:{h[2:4]}:{h[4:6]}'
+
+def get_spool_entry(entry: int) -> str:
+    try:
+        path = os.path.join(SPOOL_DIR, 'SPOOLMAST')
+        with open(path, 'rb') as f:
+            data = f.read()
+        next_free = struct.unpack('>I', data[0:4])[0]
+        for i in range(1, next_free):
+            rec = data[i * _SPOOL_REC_SIZE : (i + 1) * _SPOOL_REC_SIZE]
+            if struct.unpack('>I', rec[0:4])[0] != entry:
+                continue
+            stat_byte = chr(rec[56])
+            if stat_byte == '6':
+                return json.dumps({"error": f"Entry {entry} has been purged"})
+            filename = rec[4:16].decode('latin1').rstrip()
+            meta = {
+                'entry':       entry,
+                'filename':    filename,
+                'description': rec[16:46].decode('latin1').rstrip(),
+                'stationery':  rec[46:56].decode('latin1').rstrip(),
+                'status':      _SPOOL_STATUS.get(stat_byte, 'UNKNOWN'),
+                'dateReq':     _bcd_date(rec[58:62]),
+                'dateActual':  _bcd_date(rec[62:66]),
+                'timeQueued':  _bcd_time(rec[66:69]),
+                'timePrinted': _bcd_time(rec[69:72]),
+                'user':        rec[72:76].decode('latin1').rstrip(),
+                'operator':    rec[76:80].decode('latin1').rstrip(),
+                'printer':     chr(rec[80]),
+                'company':     rec[81:83].decode('latin1').rstrip(),
+                'system':      _SPOOL_SYSTEM.get(chr(rec[83]), chr(rec[83]).strip()),
+                'copies':      rec[84],
+            }
+            content_path = os.path.join(SPOOL_DIR, filename)
+            try:
+                with open(content_path, 'r', encoding='latin1') as cf:
+                    meta['content'] = cf.read()
+            except OSError as e:
+                meta['content'] = None
+                meta['content_error'] = str(e)
+            return json.dumps(meta, indent=2)
+        return json.dumps({"error": f"Entry {entry} not found in SPOOLMAST"})
+    except OSError as e:
+        return json.dumps({"error": str(e)})
+
+def get_invoice_detail(doc: int) -> str:
+    try:
+        return json.dumps(run_kcml("get_invoice_detail.src", ACCOUNTS_DIR, SOP_DIR, str(doc), STOCK_DIR), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
 def list_balances() -> str:
     try:
         data = run_kcml("list_balances.src", ACCOUNTS_DIR)
         if isinstance(data, list):
             data.sort(key=lambda x: x.get("balance", 0), reverse=True)
         return json.dumps(data, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+def create_order(
+    account: str,
+    lines: list,
+    customer_ref: str = "",
+    delivery_name: str = "",
+    delivery_addr1: str = "",
+    delivery_addr2: str = "",
+    delivery_addr3: str = "",
+) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    if not lines:
+        return json.dumps({"error": "at least one order line is required"})
+    import datetime
+    date_str = datetime.date.today().strftime("%Y%m%d")
+    args = [
+        SOP_DIR, STOCK_DIR,
+        account.strip().upper(),
+        (customer_ref or "")[:24],
+        (delivery_name or "")[:30],
+        (delivery_addr1 or "")[:30],
+        (delivery_addr2 or "")[:30],
+        (delivery_addr3 or "")[:30],
+        date_str,
+        str(len(lines)),
+    ]
+    for ln in lines:
+        args.append(str(ln.get("part", "")).strip().upper()[:15])
+        args.append(str(ln.get("qty", 1)))
+        args.append(str(ln.get("price", 0)))
+    try:
+        return json.dumps(run_kcml("create_order.src", *args, timeout=30), indent=2)
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
@@ -547,6 +649,46 @@ TOOLS = [
         },
     },
     {
+        "name": "get_invoice_detail",
+        "description": (
+            "Return full detail for a single invoice from the Kerridge ERP system. "
+            "Looks up the invoice document number in SALINV01, retrieves the delivery "
+            "and invoice addresses from the linked sales order in OEHDR01, and returns "
+            "all invoice lines from OEENT01 with part, description, UOM, qty, unit "
+            "price, and line total. Also returns calculated net, gross, and VAT totals, "
+            "and a carrier field with the delivery service description (e.g. 'DHL "
+            "International', 'Next Day By 17.30 pm'). "
+            "The document number is the number printed top-right on the invoice "
+            "(e.g. 714128 from '00714128'). Use get_invoice to search open invoices by "
+            "this same number; use get_invoice_detail when you need the line-level breakdown."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doc": {"type": "integer", "description": "Invoice document number, e.g. 714128"},
+            },
+            "required": ["doc"],
+        },
+    },
+    {
+        "name": "get_spool_entry",
+        "description": (
+            "Return the metadata and full text content of a Kerridge ERP spooler "
+            "entry by its entry number. Looks up the entry in SPOOLMAST to get "
+            "the description, status, dates, user, and printer, then reads the "
+            "spool file itself and returns its content as a string. Use this when "
+            "someone asks to see the output of a spooled report or job — e.g. a "
+            "daybook, stock report, or verification listing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entry": {"type": "integer", "description": "Spooler entry number, e.g. 1496"},
+            },
+            "required": ["entry"],
+        },
+    },
+    {
         "name": "add_account_note",
         "description": (
             "Add a diary note to a customer account in the Kerridge ERP Sales "
@@ -626,6 +768,60 @@ TOOLS = [
             "required": ["note"],
         },
     },
+    {
+        "name": "create_order",
+        "description": (
+            "Create a new sales order in the Kerridge ERP system. Allocates the "
+            "next order number from the PFN8 counter (S_CON01), writes the order "
+            "header to OEHDR01, and writes one OEENT01 record per line. Returns "
+            "the new order number. Use get_customer first to confirm the account "
+            "code exists before calling this."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string",
+                    "description": "Customer account code, e.g. 'Z9010'"
+                },
+                "customer_ref": {
+                    "type": "string",
+                    "description": "Customer's own reference for this order (optional, max 24 chars)"
+                },
+                "delivery_name": {
+                    "type": "string",
+                    "description": "Delivery address name (max 30 chars)"
+                },
+                "delivery_addr1": {
+                    "type": "string",
+                    "description": "Delivery address line 1 (max 30 chars)"
+                },
+                "delivery_addr2": {
+                    "type": "string",
+                    "description": "Delivery address line 2 (max 30 chars, optional)"
+                },
+                "delivery_addr3": {
+                    "type": "string",
+                    "description": "Delivery address line 3 (max 30 chars, optional)"
+                },
+                "lines": {
+                    "type": "array",
+                    "description": "Order lines — at least one required",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "part":  {"type": "string",  "description": "Part number (max 15 chars)"},
+                            "qty":   {"type": "number",  "description": "Quantity (whole or decimal)"},
+                            "price": {"type": "number",  "description": "Selling price per unit"}
+                        },
+                        "required": ["part", "qty", "price"]
+                    },
+                    "minItems": 1
+                },
+            },
+            "required": ["account", "lines"],
+        },
+    },
 ]
 
 TOOL_FNS = {
@@ -645,8 +841,19 @@ TOOL_FNS = {
     "get_paid_invoices":   lambda a: get_paid_invoices(a.get("account", ""), int(a.get("months", 12))),
     "get_part_orders":     lambda a: get_part_orders(a.get("part", "")),
     "get_picking_note": lambda a: get_picking_note(a.get("note", "")),
+    "get_invoice_detail": lambda a: get_invoice_detail(int(a.get("doc", 0))),
+    "get_spool_entry":  lambda a: get_spool_entry(int(a.get("entry", 0))),
     "list_balances":    lambda a: list_balances(),
     "list_overdue":     lambda a: list_overdue(),
+    "create_order":     lambda a: create_order(
+        a.get("account", ""),
+        a.get("lines", []),
+        customer_ref=a.get("customer_ref", ""),
+        delivery_name=a.get("delivery_name", ""),
+        delivery_addr1=a.get("delivery_addr1", ""),
+        delivery_addr2=a.get("delivery_addr2", ""),
+        delivery_addr3=a.get("delivery_addr3", ""),
+    ),
 }
 
 # ── JSON-RPC message handler ───────────────────────────────────────────────────

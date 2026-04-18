@@ -1,0 +1,214 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM create_order.src - Create a new sales order in OEHDR01 and OEENT01
+01010 REM
+01020 REM Usage - kcml -p create_order.src <sop_dir> <stock_dir> <account> <cus_ref> \
+01030 REM           <del_name> <del_a1> <del_a2> <del_a3> <date_yyyymmdd> <num_lines> \
+01040 REM           <part1> <qty1> <price1>  [<part2> <qty2> <price2> ...]
+01050 REM
+01060 REM Output - JSON with order_no and lines count
+01070 REM
+01080 REM OEHDR01 field offsets (1-based)
+01090 REM   1    lock byte (0x00)
+01100 REM   2-5  user_create (4 chars)
+01110 REM   6-9  user_amend  (4 chars)
+01120 REM   10-13 date_create (packed BCD YYYYMMDD)
+01130 REM   14-17 date_amend  (packed BCD)
+01140 REM   18-27 order_no    (ASCII left-aligned, 10 chars)
+01150 REM   28-37 account_10  (account padded to 10)
+01160 REM   38-47 billing_10  (billing account padded to 10)
+01170 REM   48-53 account_6   (account padded to 6)
+01180 REM   58-81 cus_ref     (24 chars)
+01190 REM   82-85 order_date  (packed BCD)
+01200 REM   114-143 del_name  (30 chars)
+01210 REM   144-173 del_a1    (30 chars)
+01220 REM   174-203 del_a2    (30 chars)
+01230 REM   204-233 del_a3    (30 chars)
+01240 REM   264-293 inv_name  (30 chars, same as del_name)
+01250 REM   294-323 inv_a1    (30 chars, same as del_a1)
+01260 REM   324-353 inv_a2    (30 chars, same as del_a2)
+01270 REM   354-383 inv_a3    (30 chars, same as del_a3)
+01280 REM
+01290 REM OEENT01 field offsets (1-based)
+01300 REM   1      lock byte (0x00)
+01310 REM   19-33  part_no   (15 chars)
+01320 REM   151-156 uom      (6 chars)
+01330 REM   186-193 qty_to_follow (packed BCD 9+6 dec = 15 digits + sign)
+01340 REM   202-209 price         (packed BCD 9+6 dec = 15 digits + sign)
+01350 REM   378-387 order_no  (10 chars)
+01360 REM   388-390 line_seq  (3-byte binary integer)
+01370 DIM ki_status, h_con, h_hdr, h_ent, ki_sym
+01380 DIM ki_dataptr$6, ki_key$128
+01390 DIM sop_dir$128, stock_dir$128
+01400 DIM con_file$160, hdr_file$160, ent_file$160
+01410 DIM account$8, cus_ref$26, del_name$32
+01420 DIM del_a1$32, del_a2$32, del_a3$32
+01430 DIM date_str$10, date_packed$4
+01440 DIM ctrl_rec$1024, next_ord, next_ord_str$12
+01450 DIM hdr_rec$1280, ent_rec$512
+01460 DIM qty_str$20, price_str$20, qty_val, price_val
+01470 DIM qty_packed$8, price_packed$8
+01480 DIM num_lines, line_num, base_arg, part_str$20
+01490 DIM open_ok
+01500 DIM bcd_val, n_str_b$12, pad_s$32, hex_bcd$16, pfn8_hex$8, pfn8_packed$4
+01600 sop_dir$ = RTRIM($ARG(1))
+01610 IF sop_dir$ == " " THEN DO
+01620   PRINT "{""error"":""Usage: create_order <sop_dir> <stock_dir> <account> <cus_ref> <del_name> <del_a1> <del_a2> <del_a3> <date_yyyymmdd> <num_lines> <part1> <qty1> <price1> ...""}"
+01630   $END
+01640 END DO
+01650 stock_dir$ = RTRIM($ARG(2))
+01660 account$ = $UPPER(RTRIM($ARG(3)))
+01670 IF account$ == " " THEN DO
+01680   PRINT "{""error"":""account parameter is required""}"
+01690   $END
+01700 END DO
+01710 cus_ref$ = $ARG(4)
+01720 del_name$ = $ARG(5)
+01730 del_a1$ = $ARG(6)
+01740 del_a2$ = $ARG(7)
+01750 del_a3$ = $ARG(8)
+01760 date_str$ = RTRIM($ARG(9))
+01770 IF date_str$ == " " THEN date_str$ = "20000101"
+01780 CONVERT RTRIM($ARG(10)) TO num_lines
+01790 IF num_lines <= 0 THEN DO
+01800   PRINT "{""error"":""at least one order line is required""}"
+01810   $END
+01820 END DO
+01900 REM Convert date string to packed BCD (YYYYMMDD hex string -> 4 bytes)
+01910 HEXPACK date_packed$ FROM date_str$
+01920 REM Step 1 - lock and increment PFN8 counter in S_CON01
+01930 con_file$ = stock_dir$ & "/S_CON01"
+01940 CALL KI_ALLOC_HANDLE 0, 1 TO h_con, ki_status
+01950 IF ki_status <> 0 THEN DO
+01960   PRINT $PRINTF("{""error"":""KI_ALLOC_HANDLE failed (%d)""}", ki_status)
+01970   $END
+01980 END DO
+01990 CALL KI_OPEN h_con, con_file$, "W" TO ki_status
+02000 IF ki_status <> 0 THEN DO
+02010   PRINT $PRINTF("{""error"":""Cannot open S_CON01 (%d)""}", ki_status)
+02020   CALL KI_FREE_HANDLE h_con TO ki_status
+02030   $END
+02040 END DO
+02050 ki_sym = SYM(ctrl_rec$)
+02060 CALL KI_READ_HOLD h_con, "PFN8", 1, ki_sym TO ki_status, ki_dataptr$
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot lock PFN8 (%d)""}", ki_status)
+02090   CALL KI_CLOSE h_con TO ki_status
+02100   CALL KI_FREE_HANDLE h_con TO ki_status
+02110   $END
+02120 END DO
+02130 UNPACK (#######) STR(ctrl_rec$, 95, 4) TO next_ord
+02140 next_ord++
+02150 REM Encode next_ord as 7-digit BCD with sign nibble 0 (UNPACK #######)
+02160 n_str_b$ = $PRINTF("%d", next_ord)
+02170 pad_s$ = "0000000" & RTRIM(n_str_b$)
+02180 pfn8_hex$ = STR(RTRIM(pad_s$), LEN(RTRIM(pad_s$)) - 6, 7) & "0"
+02190 HEXPACK pfn8_packed$ FROM pfn8_hex$
+02195 STR(ctrl_rec$, 95, 4) = pfn8_packed$
+02200 CALL KI_REWRITE h_con, ki_dataptr$, ki_sym TO ki_status
+02210 IF ki_status <> 0 THEN DO
+02220   PRINT $PRINTF("{""error"":""KI_REWRITE PFN8 failed (%d)""}", ki_status)
+02230   CALL KI_CLOSE h_con TO ki_status
+02240   CALL KI_FREE_HANDLE h_con TO ki_status
+02250   $END
+02260 END DO
+02270 CALL KI_CLOSE h_con TO ki_status
+02280 CALL KI_FREE_HANDLE h_con TO ki_status
+02300 REM next_ord_str$ = order number as left-aligned 10-char string
+02310 next_ord_str$ = $PRINTF("%d", next_ord)
+02400 REM Step 2 - build and write OEHDR01 record
+02410 hdr_rec$ = ALL(HEX(00))
+02420 STR(hdr_rec$, 2, 4) = "CLDE"
+02430 STR(hdr_rec$, 6, 4) = "CLDE"
+02440 STR(hdr_rec$, 10, 4) = date_packed$
+02450 STR(hdr_rec$, 14, 4) = date_packed$
+02460 STR(hdr_rec$, 18, 10) = next_ord_str$
+02470 STR(hdr_rec$, 28, 10) = account$
+02480 STR(hdr_rec$, 38, 10) = account$
+02490 STR(hdr_rec$, 48, 6) = account$
+02500 STR(hdr_rec$, 58, 24) = cus_ref$
+02510 STR(hdr_rec$, 82, 4) = date_packed$
+02520 STR(hdr_rec$, 114, 30) = del_name$
+02530 STR(hdr_rec$, 144, 30) = del_a1$
+02540 STR(hdr_rec$, 174, 30) = del_a2$
+02550 STR(hdr_rec$, 204, 30) = del_a3$
+02560 STR(hdr_rec$, 264, 30) = del_name$
+02570 STR(hdr_rec$, 294, 30) = del_a1$
+02580 STR(hdr_rec$, 324, 30) = del_a2$
+02590 STR(hdr_rec$, 354, 30) = del_a3$
+02600 hdr_file$ = sop_dir$ & "/OEHDR01"
+02610 CALL KI_ALLOC_HANDLE 0, 1 TO h_hdr, ki_status
+02620 IF ki_status <> 0 THEN DO
+02630   PRINT $PRINTF("{""error"":""KI_ALLOC_HANDLE hdr failed (%d)""}", ki_status)
+02640   $END
+02650 END DO
+02660 CALL KI_OPEN h_hdr, hdr_file$, "W" TO ki_status
+02670 IF ki_status <> 0 THEN DO
+02680   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (%d)""}", ki_status)
+02690   CALL KI_FREE_HANDLE h_hdr TO ki_status
+02700   $END
+02710 END DO
+02720 CALL KI_WRITE h_hdr, SYM(hdr_rec$), 0 TO ki_status, ki_dataptr$
+02730 IF ki_status <> 0 THEN DO
+02740   PRINT $PRINTF("{""error"":""KI_WRITE OEHDR01 failed (%d)""}", ki_status)
+02750   CALL KI_CLOSE h_hdr TO ki_status
+02760   CALL KI_FREE_HANDLE h_hdr TO ki_status
+02770   $END
+02780 END DO
+02790 CALL KI_CLOSE h_hdr TO ki_status
+02800 CALL KI_FREE_HANDLE h_hdr TO ki_status
+02900 REM Step 3 - write OEENT01 line records
+02910 ent_file$ = sop_dir$ & "/OEENT01"
+02920 CALL KI_ALLOC_HANDLE 0, 1 TO h_ent, ki_status
+02930 IF ki_status <> 0 THEN DO
+02940   PRINT $PRINTF("{""error"":""KI_ALLOC_HANDLE ent failed (%d)""}", ki_status)
+02950   $END
+02960 END DO
+02970 CALL KI_OPEN h_ent, ent_file$, "W" TO ki_status
+02980 IF ki_status <> 0 THEN DO
+02990   PRINT $PRINTF("{""error"":""Cannot open OEENT01 (%d)""}", ki_status)
+03000   CALL KI_FREE_HANDLE h_ent TO ki_status
+03010   $END
+03020 END DO
+03030 open_ok = 1
+03040 FOR line_num = 1 TO num_lines
+03050   base_arg = 10 + (line_num - 1) * 3
+03060   part_str$ = $UPPER(RTRIM($ARG(base_arg + 1)))
+03070   qty_str$ = RTRIM($ARG(base_arg + 2))
+03080   price_str$ = RTRIM($ARG(base_arg + 3))
+03090   IF qty_str$ == " " THEN qty_str$ = "1"
+03100   IF price_str$ == " " THEN price_str$ = "0"
+03110   CONVERT qty_str$ TO qty_val
+03120   CONVERT price_str$ TO price_val
+03130   REM Encode qty as 15-digit BCD with sign nibble C (UNPACK #########.######)
+03140   bcd_val = ROUND(qty_val * 1000000, 0)
+03150   n_str_b$ = $PRINTF("%d", bcd_val)
+03160   pad_s$ = "000000000000000" & RTRIM(n_str_b$)
+03170   hex_bcd$ = STR(RTRIM(pad_s$), LEN(RTRIM(pad_s$)) - 14, 15) & "C"
+03180   HEXPACK qty_packed$ FROM hex_bcd$
+03190   REM Encode price as 15-digit BCD with sign nibble C
+03200   bcd_val = ROUND(price_val * 1000000, 0)
+03210   n_str_b$ = $PRINTF("%d", bcd_val)
+03220   pad_s$ = "000000000000000" & RTRIM(n_str_b$)
+03230   hex_bcd$ = STR(RTRIM(pad_s$), LEN(RTRIM(pad_s$)) - 14, 15) & "C"
+03240   HEXPACK price_packed$ FROM hex_bcd$
+03250   ent_rec$ = ALL(HEX(00))
+03260   STR(ent_rec$, 19, 15) = part_str$
+03270   STR(ent_rec$, 151, 6) = "EA    "
+03280   STR(ent_rec$, 186, 8) = qty_packed$
+03290   STR(ent_rec$, 202, 8) = price_packed$
+03300   STR(ent_rec$, 378, 10) = next_ord_str$
+03310   STR(ent_rec$, 388, 3) = BIN(line_num, 3)
+03320   CALL KI_WRITE h_ent, SYM(ent_rec$), 0 TO ki_status, ki_dataptr$
+03330   IF ki_status <> 0 THEN DO
+03340     open_ok = 0
+03350   END DO
+03360 NEXT line_num
+03370 CALL KI_CLOSE h_ent TO ki_status
+03380 CALL KI_FREE_HANDLE h_ent TO ki_status
+03390 IF open_ok == 0 THEN DO
+03400   PRINT $PRINTF("{""error"":""KI_WRITE OEENT01 failed for one or more lines""}")
+03410   $END
+03420 END DO
+03430 PRINT $PRINTF("{""order_no"": %d, ""lines"": %d}", next_ord, num_lines)
+03440 $END
