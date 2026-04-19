@@ -47,6 +47,9 @@ No environment variables required — this is a fully licensed system.
 
 kcmlrefman_md/              # Full language reference — 393 markdown files (primary reference source)
 kcml_executor/              # Python execution server + PowerShell helper scripts
+mcp_server/                 # MCP server and KCML scripts for Kerridge ERP integration
+
+ERP.md                      # ERP-specific reference: file formats, field maps, handle map
 ```
 
 ---
@@ -143,7 +146,7 @@ Use `CONVERT str$ TO num` to parse an ASCII number string into a numeric variabl
 
 `CONVERT` stops at the first non-numeric character, so trailing spaces in fixed-length string variables are safe.
 
-## Packed Date Format (OEHDR01 and likely all files)
+## Packed Date Format
 
 Type `D`, 4-byte fields store dates as 4 binary-coded bytes that HEXUNPACK reveals as `YYYYMMDD`. To display as DD/MM/YYYY:
 
@@ -187,7 +190,7 @@ The image string must match: `(field_bytes*2 - 1 - scale)` `#` chars + `.` + `sc
 : REM hex_s$ = "000000009990000C", packed$ = 8 binary bytes
 ```
 
-Sign nibble: use `C` for OEENT01 #########.###### fields; use `0` for integer-only PACK(#######) fields (e.g. PFN8 counter).
+Sign nibble: use `C` for `#########.######` decimal fields; use `0` for integer-only `PACK(#######)` fields.
 
 For PACK(#######) 7-digit integer fields (4 bytes):
 ```kcml
@@ -214,7 +217,7 @@ Key facts:
 CALL KI_REWRITE h, ki_dataptr$, ki_sym TO ki_status
 ```
 
-Used after `KI_READ_HOLD` to write back a modified locked record. The ERP wrapper `GOSUB 'KI_REWRITE(handle, ki_dataptr$, ki_sym)` auto-stamps USER_AMEND/DATE_AMEND fields; the direct CALL does not.
+Used after `KI_READ_HOLD` to write back a modified locked record.
 
 **KI_WRITE signature for new records:**
 
@@ -223,21 +226,6 @@ CALL KI_WRITE h, SYM(rec$), 0 TO ki_status, ki_dataptr$
 ```
 
 The third argument (path=0 = key path 1) tells KISAM which key path to use for the insert.
-
-## ERP Wrapper ki_start_beg Bug (after EOF)
-
-After reading a KISAM file to EOF, the ERP global wrapper `GOSUB 'ki_start_beg(handle, 1)` fails to reposition — it returns a non-zero status. The fix: capture the first real part key before any EOF reads, then use `GOSUB 'ki_start(handle, first_part$, 1)` instead.
-
-```kcml
-: REM Capture before any full-file scan
-: GOSUB 'ki_start(gb_h(51), ps_null_key$, 1)
-: GOSUB 'ki_read_next(gb_h(51), 1, SYM(ps_srec$))
-: IF ki_status == 0 THEN ps_first_part$ = RTRIM(STR(ps_srec$, pf_m1(1), pf_m2(1)))
-: REM Later, to restart from beginning (works even after EOF):
-: GOSUB 'ki_start(gb_h(51), ps_first_part$, 1)
-```
-
-`CALL KI_START_BEG handle, 1 TO ki_status` (direct, not ERP wrapper) works fine after EOF.
 
 ## Conditional $END Pattern
 
@@ -256,3 +244,7 @@ When an operation between the error print and `$END` resets `ki_status` (e.g. `K
 : IF read_ok == 0 THEN CALL KI_CLOSE handle TO ki_status
 : IF read_ok == 0 THEN $END
 ```
+
+## ERP-Specific Reference
+
+See `ERP.md` for Kerridge SOP ERP-specific file formats, field maps, and patterns (OEHDR01, OEENT01, S_CON01, gb_h handle map, libKI wrapper behaviour).

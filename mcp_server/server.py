@@ -4,6 +4,7 @@ Kerridge ERP MCP Server
 Exposes live ERP data from KISAM K-Open 3 files via KCML query programs.
 
 Tools:
+  create_order         - create a new sales order via ERP native lib routines (SELECT @PART KOPEN3GB)
   find_customer        - search customers by name fragment
   get_customer         - direct customer lookup by account code
   get_orders           - list orders for a customer account
@@ -23,7 +24,6 @@ Tools:
   add_account_note     - write a diary note to a customer account (SALDRY01, creates new record)
   get_invoice_detail   - full invoice detail with delivery address and all lines (SALINV01+OEHDR01+OEENT01)
   get_spool_entry      - return spooler entry metadata and content by entry number (SPOOLMAST)
-  create_order         - create a new sales order header + lines (OEHDR01 + OEENT01, allocates order number)
 
 Transport modes:
 
@@ -356,6 +356,52 @@ def get_invoice_detail(doc: int) -> str:
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
+def create_order(
+    account: str,
+    cus_ref: str,
+    lines: list,
+    addr1: str = "",
+    addr2: str = "",
+    addr3: str = "",
+    addr4: str = "",
+    addr5: str = "",
+    order_date: str = "",
+) -> str:
+    if not account or not account.strip():
+        return json.dumps({"error": "account parameter is required"})
+    if not lines:
+        return json.dumps({"error": "at least one order line is required"})
+    if len(lines) > 20:
+        return json.dumps({"error": "maximum 20 lines per order"})
+    flat_lines = []
+    for i, ln in enumerate(lines):
+        part = str(ln.get("part", "")).strip().upper()
+        if not part:
+            return json.dumps({"error": f"line {i+1}: part is required"})
+        flat_lines += [
+            part,
+            str(ln.get("qty", 1)),
+            str(ln.get("price", 0)),
+            str(ln.get("discount", 0)),
+        ]
+    try:
+        return json.dumps(run_kcml(
+            "create_order.src",
+            account.strip().upper(),
+            (cus_ref or "")[:30],
+            (addr1 or "")[:30],
+            (addr2 or "")[:30],
+            (addr3 or "")[:30],
+            (addr4 or "")[:30],
+            (addr5 or "")[:30],
+            (order_date or "").strip(),
+            str(len(lines)),
+            *flat_lines,
+        ), indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)})
+
+
 def list_balances() -> str:
     try:
         data = run_kcml("list_balances.src", ACCOUNTS_DIR)
@@ -365,44 +411,51 @@ def list_balances() -> str:
     except RuntimeError as e:
         return json.dumps({"error": str(e)})
 
-def create_order(
-    account: str,
-    lines: list,
-    customer_ref: str = "",
-    delivery_name: str = "",
-    delivery_addr1: str = "",
-    delivery_addr2: str = "",
-    delivery_addr3: str = "",
-) -> str:
-    if not account or not account.strip():
-        return json.dumps({"error": "account parameter is required"})
-    if not lines:
-        return json.dumps({"error": "at least one order line is required"})
-    import datetime
-    date_str = datetime.date.today().strftime("%Y%m%d")
-    args = [
-        SOP_DIR, STOCK_DIR,
-        account.strip().upper(),
-        (customer_ref or "")[:24],
-        (delivery_name or "")[:30],
-        (delivery_addr1 or "")[:30],
-        (delivery_addr2 or "")[:30],
-        (delivery_addr3 or "")[:30],
-        date_str,
-        str(len(lines)),
-    ]
-    for ln in lines:
-        args.append(str(ln.get("part", "")).strip().upper()[:15])
-        args.append(str(ln.get("qty", 1)))
-        args.append(str(ln.get("price", 0)))
-    try:
-        return json.dumps(run_kcml("create_order.src", *args, timeout=30), indent=2)
-    except RuntimeError as e:
-        return json.dumps({"error": str(e)})
-
 # ── MCP tool definitions ───────────────────────────────────────────────────────
 
 TOOLS = [
+    {
+        "name": "create_order",
+        "description": (
+            "Create a new sales order in the Kerridge ERP. Uses the ERP's own native "
+            "library routines (via SELECT @PART KOPEN3GB) to produce a fully-populated "
+            "order identical to one created through the ERP UI — including account "
+            "defaults, payment terms, VAT codes, currency, and stock descriptions. "
+            "The order number is allocated from the ERP's own counter. Returns the "
+            "new order number, account, and line count on success. "
+            "Delivery address defaults to the account's registered address; supply "
+            "addr1..addr5 to override. order_date defaults to today if omitted. "
+            "Each line requires part (part number), qty, price, and optionally discount."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account":    {"type": "string",  "description": "Customer account code, e.g. 'D2560'"},
+                "cus_ref":    {"type": "string",  "description": "Customer's own order reference"},
+                "lines": {
+                    "type": "array",
+                    "description": "Order lines (max 20)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "part":     {"type": "string",  "description": "Part number"},
+                            "qty":      {"type": "number",  "description": "Quantity"},
+                            "price":    {"type": "number",  "description": "Unit price"},
+                            "discount": {"type": "number",  "description": "Discount % (default 0)"},
+                        },
+                        "required": ["part", "qty", "price"],
+                    },
+                },
+                "addr1":      {"type": "string",  "description": "Delivery name/address line 1 (optional)"},
+                "addr2":      {"type": "string",  "description": "Delivery address line 2 (optional)"},
+                "addr3":      {"type": "string",  "description": "Delivery address line 3 (optional)"},
+                "addr4":      {"type": "string",  "description": "Delivery address line 4 (optional)"},
+                "addr5":      {"type": "string",  "description": "Delivery address line 5 / postcode (optional)"},
+                "order_date": {"type": "string",  "description": "Order date DD/MM/YYYY (default today)"},
+            },
+            "required": ["account", "cus_ref", "lines"],
+        },
+    },
     {
         "name": "get_customer",
         "description": (
@@ -768,63 +821,20 @@ TOOLS = [
             "required": ["note"],
         },
     },
-    {
-        "name": "create_order",
-        "description": (
-            "Create a new sales order in the Kerridge ERP system. Allocates the "
-            "next order number from the PFN8 counter (S_CON01), writes the order "
-            "header to OEHDR01, and writes one OEENT01 record per line. Returns "
-            "the new order number. Use get_customer first to confirm the account "
-            "code exists before calling this."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "account": {
-                    "type": "string",
-                    "description": "Customer account code, e.g. 'Z9010'"
-                },
-                "customer_ref": {
-                    "type": "string",
-                    "description": "Customer's own reference for this order (optional, max 24 chars)"
-                },
-                "delivery_name": {
-                    "type": "string",
-                    "description": "Delivery address name (max 30 chars)"
-                },
-                "delivery_addr1": {
-                    "type": "string",
-                    "description": "Delivery address line 1 (max 30 chars)"
-                },
-                "delivery_addr2": {
-                    "type": "string",
-                    "description": "Delivery address line 2 (max 30 chars, optional)"
-                },
-                "delivery_addr3": {
-                    "type": "string",
-                    "description": "Delivery address line 3 (max 30 chars, optional)"
-                },
-                "lines": {
-                    "type": "array",
-                    "description": "Order lines — at least one required",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "part":  {"type": "string",  "description": "Part number (max 15 chars)"},
-                            "qty":   {"type": "number",  "description": "Quantity (whole or decimal)"},
-                            "price": {"type": "number",  "description": "Selling price per unit"}
-                        },
-                        "required": ["part", "qty", "price"]
-                    },
-                    "minItems": 1
-                },
-            },
-            "required": ["account", "lines"],
-        },
-    },
 ]
 
 TOOL_FNS = {
+    "create_order": lambda a: create_order(
+        a.get("account", ""),
+        a.get("cus_ref", ""),
+        a.get("lines", []),
+        a.get("addr1", ""),
+        a.get("addr2", ""),
+        a.get("addr3", ""),
+        a.get("addr4", ""),
+        a.get("addr5", ""),
+        a.get("order_date", ""),
+    ),
     "get_customer":     lambda a: get_customer(a.get("account", "")),
     "find_customer":    lambda a: find_customer(a.get("name", "")),
     "get_orders":       lambda a: get_orders(a.get("account", "")),
@@ -845,15 +855,6 @@ TOOL_FNS = {
     "get_spool_entry":  lambda a: get_spool_entry(int(a.get("entry", 0))),
     "list_balances":    lambda a: list_balances(),
     "list_overdue":     lambda a: list_overdue(),
-    "create_order":     lambda a: create_order(
-        a.get("account", ""),
-        a.get("lines", []),
-        customer_ref=a.get("customer_ref", ""),
-        delivery_name=a.get("delivery_name", ""),
-        delivery_addr1=a.get("delivery_addr1", ""),
-        delivery_addr2=a.get("delivery_addr2", ""),
-        delivery_addr3=a.get("delivery_addr3", ""),
-    ),
 }
 
 # ── JSON-RPC message handler ───────────────────────────────────────────────────

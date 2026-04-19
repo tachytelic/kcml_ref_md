@@ -1,0 +1,310 @@
+#!/usr/lib/kcml/kcml -p
+00100 $COMPLIANCE 1
+01000 REM get_invoice_detail.src
+01010 REM Full invoice detail - header + delivery address + all lines
+01020 REM
+01030 REM Usage - kcml -x uf_json.so -p get_invoice_detail.src <accounts_dir> <sop_dir> <doc_number>
+01040 REM
+01050 REM Input  - doc_number = the document number printed top-right on the invoice (e.g. 714128)
+01060 REM Output - JSON object with invoice header, delivery address, and docLines array
+01070 REM
+01080 REM Files used:
+01090 REM   SALINV01  - invoice header (sequential scan by doc number at off=72)
+01100 REM   OEHDR01   - order header (keyed by order number, extracted from SALINV01 off=76)
+01110 REM   OEENT01   - order lines (sequential scan filtered by order number at off=378)
+01120 REM   S_MISC01   - carrier descriptions (keyed by 2-char code from Pik Text 1)
+01130 REM SALINV01 fields (1-based offsets)
+01140 REM   type            C  off=  20  len=   1  (I=Invoice, C=Credit Note)
+01150 REM   invoice date    D  off=  22  len=   4  (packed BCD CCYYMMDD)
+01160 REM   due date        D  off=  26  len=   4  (packed BCD CCYYMMDD)
+01170 REM   account         C  off=  62  len=   6  (invoice/billing account)
+01180 REM   doc number      I  off=  72  len=   4  (packed BCD, used as lookup key)
+01190 REM   order number    C  off=  76  len=  14  (ASCII, links to OEHDR01)
+01200 REM   gross           I  off=  90  len=   8  dec=6 (total invoice value inc VAT)
+01210 REM
+01220 REM OEHDR01 fields (see get_order_detail.src for full layout)
+01230 REM   order number    C  off=  18  len=  10
+01240 REM   account         C  off=  48  len=   6  (delivery account)
+01250 REM   customer ref    C  off=  58  len=  24
+01260 REM   order date      D  off=  82  len=   4  (packed BCD CCYYMMDD)
+01270 REM   delivery name   C  off= 114  len=  30
+01280 REM   delivery addr   C  off= 144  len=  30 (lines 1-4)
+01290 REM   delivery pc     C  off=1112  len=   8
+01300 REM   delivery method C  off= 561  len=  24
+01301 REM   invoice pc      C  off=1120  len=   8  (from OEHDR01.DD; may be empty)
+01302 REM   pik text 1      C  off= 807  len=  24  (first 2 chars = carrier code if char 3 is space)
+01310 REM
+01320 REM OEENT01 fields (1-based offsets)
+01330 REM   part number     C  off=  19  len=  15
+01340 REM   description 1   C  off=  91  len=  30
+01350 REM   description 2   C  off= 121  len=  30
+01360 REM   UOM             C  off= 151  len=   6
+01370 REM   qty ordered     I  off= 170  len=   8  dec=6 (verified by live probe)
+01380 REM   qty to follow   I  off= 186  len=   8  dec=6 (0 = fully invoiced)
+01390 REM   unit price      I  off= 202  len=   8  dec=6
+01400 REM   order number    C  off= 378  len=  10  (filter key)
+01500 DIM ki_status, ki_sym, h_inv, h_hdr, h_ent, h_misc
+01510 DIM ki_dataptr$6, ki_key$64
+01520 DIM inv_rec$512, hdr_rec$1200, ent_rec$400, misc_rec$100
+01530 DIM accounts_dir$128, sop_dir$128, stock_dir$128
+01540 DIM inv_file$160, hdr_file$160, ent_file$160, misc_file$160
+01550 DIM target_doc, doc_bcd, found_inv
+01560 DIM inv_type$2, inv_acc$8, inv_order$16, ord_trim$12
+01570 DIM date_hex$12, inv_date$12, due_date$12, order_date$12
+01580 DIM gross, net_calc
+01590 DIM del_name$32, del_a1$32, del_a2$32, del_a3$32, del_a4$32, del_pc$10
+01600 DIM del_acc$8, cus_ref$26, del_method$26
+01605 DIM inv_name$32, inv_a1$32, inv_a2$32, inv_a3$32, inv_a4$32, inv_pc$10
+01606 DIM carrier_code$4, carrier_desc$42, pik1$26
+01610 DIM first_addr
+01620 REM Line buffers - up to 200 lines
+01630 DIM ent_count, i
+01640 DIM ent_part$3000, ent_d1$6000, ent_d2$6000, ent_uom$1200
+01650 DIM ent_qty(200), ent_tf(200), ent_price(200)
+01660 DIM je$512, line_total, line_net
+01670 DIM arg_doc$16
+01700 accounts_dir$ = RTRIM($ARG(1))
+01710 IF accounts_dir$ == " " THEN DO
+01720   PRINT "{""error"":""Usage: get_invoice_detail <accounts_dir> <sop_dir> <doc_number>""}"
+01730   $END
+01740 END DO
+01750 sop_dir$ = RTRIM($ARG(2))
+01760 IF sop_dir$ == " " THEN DO
+01770   PRINT "{""error"":""Usage: get_invoice_detail <accounts_dir> <sop_dir> <doc_number>""}"
+01780   $END
+01790 END DO
+01800 arg_doc$ = RTRIM($ARG(3))
+01810 IF arg_doc$ == " " THEN DO
+01820   PRINT "{""error"":""Document number is required""}"
+01830   $END
+01840 END DO
+01850 CONVERT arg_doc$ TO target_doc
+01860 inv_file$ = accounts_dir$ & "/SALINV01"
+01870 hdr_file$ = sop_dir$ & "/OEHDR01"
+01801 stock_dir$ = RTRIM($ARG(4))
+01802 IF stock_dir$ == " " THEN stock_dir$ = "/user1/kopen/stock"
+01880 ent_file$ = sop_dir$ & "/OEENT01"
+01881 misc_file$ = stock_dir$ & "/S_MISC01"
+02000 REM Phase 1 - Scan SALINV01 for the document number
+02010 CALL KI_ALLOC_HANDLE 0, 1 TO h_inv, ki_status
+02020 IF ki_status <> 0 THEN DO
+02030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (INV)""}"
+02040   $END
+02050 END DO
+02060 CALL KI_OPEN h_inv, inv_file$, "R" TO ki_status
+02070 IF ki_status <> 0 THEN DO
+02080   PRINT $PRINTF("{""error"":""Cannot open SALINV01 (status %d)""}", ki_status)
+02090   CALL KI_FREE_HANDLE h_inv TO ki_status
+02100   $END
+02110 END DO
+02120 CALL KI_START_BEG h_inv, 1 TO ki_status
+02130 ki_sym = SYM(inv_rec$)
+02140 found_inv = 0
+02150 REPEAT
+02160   CALL KI_READ_NEXT h_inv, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+02170   IF ki_status == 0 THEN DO
+02180     UNPACK (########) STR(inv_rec$, 72, 4) TO doc_bcd
+02190     IF doc_bcd == target_doc THEN DO
+02200       found_inv = 1
+02210       inv_type$ = STR(inv_rec$, 20, 1)
+02220       inv_acc$  = RTRIM(STR(inv_rec$, 62, 6))
+02230       inv_order$ = RTRIM(STR(inv_rec$, 76, 14))
+02240       HEXUNPACK STR(inv_rec$, 22, 4) TO date_hex$
+02250       inv_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02260       HEXUNPACK STR(inv_rec$, 26, 4) TO date_hex$
+02270       due_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+02280       UNPACK (#########.######) STR(inv_rec$, 90, 8) TO gross
+02290       ki_status = 99
+02300     END DO
+02310   END DO
+02320 UNTIL ki_status <> 0
+02330 CALL KI_CLOSE h_inv TO ki_status
+02340 CALL KI_FREE_HANDLE h_inv TO ki_status
+02350 IF found_inv == 0 THEN DO
+02360   PRINT $PRINTF("{""error"":""Document %d not found in open sales ledger""}", target_doc)
+02370   $END
+02380 END DO
+02390 ord_trim$ = RTRIM(inv_order$)
+03000 REM Phase 2 - Look up OEHDR01 for delivery details
+03010 CALL KI_ALLOC_HANDLE 0, 1 TO h_hdr, ki_status
+03020 IF ki_status <> 0 THEN DO
+03030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (HDR)""}"
+03040   $END
+03050 END DO
+03060 CALL KI_OPEN h_hdr, hdr_file$, "R" TO ki_status
+03070 IF ki_status <> 0 THEN DO
+03080   PRINT $PRINTF("{""error"":""Cannot open OEHDR01 (status %d)""}", ki_status)
+03090   CALL KI_FREE_HANDLE h_hdr TO ki_status
+03100   $END
+03110 END DO
+03120 CALL KI_START h_hdr, ord_trim$, 1 TO ki_status
+03130 ki_sym = SYM(hdr_rec$)
+03140 CALL KI_READ_NEXT h_hdr, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03150 CALL KI_CLOSE h_hdr TO ki_status
+03160 CALL KI_FREE_HANDLE h_hdr TO ki_status
+03170 IF ki_status <> 0 OR RTRIM(STR(hdr_rec$, 18, 10)) <> ord_trim$ THEN DO
+03180   del_name$ = " "
+03190   del_a1$   = " "
+03200   del_a2$   = " "
+03210   del_a3$   = " "
+03220   del_a4$   = " "
+03230   del_pc$   = " "
+03240   del_acc$  = " "
+03250   cus_ref$  = " "
+03260   del_method$ = " "
+03270   order_date$ = " "
+03271   inv_name$ = " "
+03272   inv_a1$   = " "
+03273   inv_a2$   = " "
+03274   inv_a3$   = " "
+03275   inv_a4$   = " "
+03276   inv_pc$   = " "
+03277   carrier_code$ = " "
+03280 END DO
+03290 IF ki_status == 0 AND RTRIM(STR(hdr_rec$, 18, 10)) == ord_trim$ THEN DO
+03300   del_acc$    = RTRIM(STR(hdr_rec$, 48, 6))
+03310   cus_ref$    = RTRIM(STR(hdr_rec$, 58, 24))
+03320   HEXUNPACK STR(hdr_rec$, 82, 4) TO date_hex$
+03330   order_date$ = STR(date_hex$, 7, 2) & "/" & STR(date_hex$, 5, 2) & "/" & STR(date_hex$, 1, 4)
+03340   del_name$ = RTRIM(STR(hdr_rec$, 114, 30))
+03350   del_a1$   = RTRIM(STR(hdr_rec$, 144, 30))
+03360   del_a2$   = RTRIM(STR(hdr_rec$, 174, 30))
+03370   del_a3$   = RTRIM(STR(hdr_rec$, 204, 30))
+03380   del_a4$   = RTRIM(STR(hdr_rec$, 234, 30))
+03390   del_pc$   = RTRIM(STR(hdr_rec$, 1112, 8))
+03400   del_method$ = RTRIM(STR(hdr_rec$, 561, 24))
+03405   inv_name$ = RTRIM(STR(hdr_rec$, 264, 30))
+03406   inv_a1$   = RTRIM(STR(hdr_rec$, 294, 30))
+03407   inv_a2$   = RTRIM(STR(hdr_rec$, 324, 30))
+03408   inv_a3$   = RTRIM(STR(hdr_rec$, 354, 30))
+03409   inv_a4$   = RTRIM(STR(hdr_rec$, 384, 30))
+03410   inv_pc$   = RTRIM(STR(hdr_rec$, 1120, 8))
+03412   pik1$ = STR(hdr_rec$, 807, 24)
+03413   carrier_code$ = STR(pik1$, 1, 2)
+03414   IF STR(pik1$, 3, 1) <> " " THEN carrier_code$ = " "
+03411 END DO
+03500 REM Phase 2.5 - Carrier description from S_MISC01
+03510 carrier_desc$ = " "
+03520 IF RTRIM(carrier_code$) <> " " THEN DO
+03530   CALL KI_ALLOC_HANDLE 0, 1 TO h_misc, ki_status
+03540   IF ki_status == 0 THEN CALL KI_OPEN h_misc, misc_file$, "R" TO ki_status
+03550   IF ki_status == 0 THEN DO
+03560     ki_sym = SYM(misc_rec$)
+03570     CALL KI_START h_misc, carrier_code$, 1 TO ki_status
+03580     IF ki_status == 0 THEN CALL KI_READ_NEXT h_misc, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+03590     IF ki_status == 0 AND RTRIM(ki_key$) == RTRIM(carrier_code$) THEN DO
+03600       carrier_desc$ = RTRIM(STR(misc_rec$, 26, 35))
+03610     END DO
+03620     CALL KI_CLOSE h_misc TO ki_status
+03630     CALL KI_FREE_HANDLE h_misc TO ki_status
+03640   END DO
+03650 END DO
+04000 REM Phase 3 - Collect order lines from OEENT01
+04010 CALL KI_ALLOC_HANDLE 0, 1 TO h_ent, ki_status
+04020 IF ki_status <> 0 THEN DO
+04030   PRINT "{""error"":""KI_ALLOC_HANDLE failed (ENT)""}"
+04040   $END
+04050 END DO
+04060 CALL KI_OPEN h_ent, ent_file$, "R" TO ki_status
+04070 IF ki_status <> 0 THEN DO
+04080   PRINT $PRINTF("{""error"":""Cannot open OEENT01 (status %d)""}", ki_status)
+04090   CALL KI_FREE_HANDLE h_ent TO ki_status
+04100   $END
+04110 END DO
+04120 CALL KI_START_BEG h_ent, 1 TO ki_status
+04130 ki_sym = SYM(ent_rec$)
+04140 ent_count = 0
+04150 REPEAT
+04160   CALL KI_READ_NEXT h_ent, 1, ki_sym TO ki_status, ki_dataptr$, ki_key$
+04170   IF ki_status == 0 THEN DO
+04180     IF RTRIM(STR(ent_rec$, 378, 10)) == ord_trim$ AND ent_count < 200 THEN DO
+04190       ent_count++
+04200       STR(ent_part$, (ent_count-1)*15+1, 15) = STR(ent_rec$, 19, 15)
+04210       STR(ent_d1$,   (ent_count-1)*30+1, 30) = STR(ent_rec$, 91, 30)
+04220       STR(ent_d2$,   (ent_count-1)*30+1, 30) = STR(ent_rec$, 121, 30)
+04230       STR(ent_uom$,  (ent_count-1)*6+1,   6) = STR(ent_rec$, 151, 6)
+04240       UNPACK (#########.######) STR(ent_rec$, 170, 8) TO ent_qty(ent_count)
+04250       UNPACK (#########.######) STR(ent_rec$, 186, 8) TO ent_tf(ent_count)
+04260       UNPACK (#########.######) STR(ent_rec$, 202, 8) TO ent_price(ent_count)
+04270     END DO
+04280   END DO
+04290 UNTIL ki_status <> 0
+04300 CALL KI_CLOSE h_ent TO ki_status
+04310 CALL KI_FREE_HANDLE h_ent TO ki_status
+05000 REM Phase 4 - Emit JSON
+05010 PRINT "{"
+05020 PRINT $PRINTF("  ""doc_number"": %d,", target_doc)
+05030 IF inv_type$ == "I" THEN PRINT "  ""type"": ""Invoice"","
+05040 IF inv_type$ == "C" THEN PRINT "  ""type"": ""Credit Note"","
+05050 CALL JSON_ESCAPE inv_acc$ TO je$
+05060 PRINT $PRINTF("  ""account"": ""%s"",", je$)
+05070 CALL JSON_ESCAPE ord_trim$ TO je$
+05080 PRINT $PRINTF("  ""order"": ""%s"",", je$)
+05090 PRINT $PRINTF("  ""invoice_date"": ""%s"",", inv_date$)
+05100 PRINT $PRINTF("  ""due_date"": ""%s"",", due_date$)
+05110 PRINT $PRINTF("  ""order_date"": ""%s"",", order_date$)
+05120 CALL JSON_ESCAPE del_acc$ TO je$
+05130 PRINT $PRINTF("  ""delivery_account"": ""%s"",", je$)
+05140 CALL JSON_ESCAPE cus_ref$ TO je$
+05150 PRINT $PRINTF("  ""customer_ref"": ""%s"",", je$)
+05160 CALL JSON_ESCAPE del_method$ TO je$
+05170 PRINT $PRINTF("  ""delivery_method"": ""%s"",", je$)
+05175 CALL JSON_ESCAPE carrier_desc$ TO je$
+05176 PRINT $PRINTF("  ""carrier"": ""%s"",", je$)
+05180 REM Delivery address
+05190 PRINT "  ""delivery_address"": ["
+05200 first_addr = 1
+05210 GOSUB 'EMIT_ADDR_LINE(del_name$)
+05220 GOSUB 'EMIT_ADDR_LINE(del_a1$)
+05230 GOSUB 'EMIT_ADDR_LINE(del_a2$)
+05240 GOSUB 'EMIT_ADDR_LINE(del_a3$)
+05250 GOSUB 'EMIT_ADDR_LINE(del_a4$)
+05260 GOSUB 'EMIT_ADDR_LINE(del_pc$)
+05270 PRINT "  ],"
+05275 REM Invoice address
+05276 PRINT "  ""invoice_address"": ["
+05277 first_addr = 1
+05278 GOSUB 'EMIT_ADDR_LINE(inv_name$)
+05279 GOSUB 'EMIT_ADDR_LINE(inv_a1$)
+05280 GOSUB 'EMIT_ADDR_LINE(inv_a2$)
+05281 GOSUB 'EMIT_ADDR_LINE(inv_a3$)
+05282 GOSUB 'EMIT_ADDR_LINE(inv_a4$)
+05283 GOSUB 'EMIT_ADDR_LINE(inv_pc$)
+05284 PRINT "  ],"
+05285 REM Lines
+05290 PRINT "  ""lines"": ["
+05300 net_calc = 0
+05310 FOR i = 1 TO ent_count
+05320   line_total = ent_qty(i) * ent_price(i)
+05330   net_calc = net_calc + line_total
+05340   IF i > 1 THEN PRINT "    ,"
+05350   PRINT "    {"
+05360   CALL JSON_ESCAPE RTRIM(STR(ent_part$, (i-1)*15+1, 15)) TO je$
+05370   PRINT $PRINTF("      ""part"": ""%s"",", je$)
+05380   CALL JSON_ESCAPE RTRIM(STR(ent_d1$, (i-1)*30+1, 30)) TO je$
+05390   PRINT $PRINTF("      ""description"": ""%s"",", je$)
+05400   CALL JSON_ESCAPE RTRIM(STR(ent_d2$, (i-1)*30+1, 30)) TO je$
+05410   IF RTRIM(je$) <> " " THEN PRINT $PRINTF("      ""description2"": ""%s"",", je$)
+05420   CALL JSON_ESCAPE RTRIM(STR(ent_uom$, (i-1)*6+1, 6)) TO je$
+05430   PRINT $PRINTF("      ""uom"": ""%s"",", je$)
+05440   PRINT $PRINTF("      ""qty"": %.0f,", ent_qty(i))
+05450   PRINT $PRINTF("      ""qty_to_follow"": %.0f,", ent_tf(i))
+05460   PRINT $PRINTF("      ""unit_price"": %.4f,", ent_price(i))
+05470   PRINT $PRINTF("      ""line_total"": %.2f", line_total)
+05480   PRINT "    }"
+05490 NEXT i
+05500 PRINT "  ],"
+05510 PRINT $PRINTF("  ""net"": %.2f,", net_calc)
+05520 PRINT $PRINTF("  ""gross"": %.2f,", gross)
+05530 PRINT $PRINTF("  ""vat"": %.2f", gross - net_calc)
+05540 PRINT "}"
+05550 $END
+06000 REM EMIT_ADDR_LINE - print one address line if non-blank
+06010 DEFSUB 'EMIT_ADDR_LINE(line$32)
+06020 IF RTRIM(line$) <> " " THEN DO
+06030   IF NOT first_addr THEN PRINT "    ,"
+06040   CALL JSON_ESCAPE line$ TO je$
+06050   PRINT $PRINTF("    ""%s""", je$)
+06060   first_addr = 0
+06070 END DO
+06080 ENDSUB

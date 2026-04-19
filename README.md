@@ -50,6 +50,37 @@ A Claude Code skill that enables Claude to write, test, and debug KCML code:
 - `SKILL.md` — Quick reference covering syntax rules, common patterns, and execution
 - `references/` — Detailed topic files: data types, arrays, control flow, string functions, date functions, error handling, subroutines, screen I/O, and more
 
+### `mcp_server/` — Kerridge ERP MCP Server
+
+A Model Context Protocol server that exposes Kerridge K-Open 3 ERP data to AI assistants. Reads KISAM binary files directly — no middleware required.
+
+**Invoice tools:**
+- `get_invoices` — list open invoices for an account (SALINV01)
+- `get_invoice` — look up a single invoice by document number (SALINV01)
+- `get_invoice_detail` — full invoice with delivery/invoice address, all lines, net/gross/VAT, and carrier description (SALINV01 + OEHDR01 + OEENT01 + S_MISC01)
+- `get_paid_invoices` — paid invoices for an account with date filter
+
+**Order tools:**
+- `get_orders` — list open orders for an account (OEHDR01)
+- `get_order_detail` — full order header with address and all lines (OEHDR01 + OEENT01)
+- `get_part_orders` — all open orders containing a specific part (OEENT01 + OEHDR01)
+- `get_picking_note` — picking note detail by note number (OEPIK01 + OEENT01)
+
+**Customer tools:**
+- `get_customer` — account master including address, terms, sales rep (OECUS01)
+- `find_customer` — search accounts by name fragment
+
+**Stock tools:**
+- `get_stock_item` — single part lookup: description, price, qty, free stock (S_STOK01)
+- `find_stock` — search parts by description fragment
+- `get_account_sales` — YTD/MTD sales by account (OEMSA01)
+- `get_part_sales` — sales history by part number (OEMSA01)
+
+**Other:**
+- `list_overdue` — accounts with overdue balances
+- `list_balances` — all account balances
+- `add_account_note` — append a note to an account record
+
 ### `kcml_executor/` — Execution Helpers
 
 Scripts for running KCML code locally during development and testing.
